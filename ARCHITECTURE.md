@@ -1,15 +1,17 @@
 # PARCHEESI — Architecture
 
 ## Shared game engine
-- `src/engine/ludo.js`: deterministic game rules, standings, and AI heuristics for three difficulty tiers. The engine is versioned (`version: 2`) and carries `finishOrder`, `lastFinish`, and `bonusToken` alongside the classic fields.
+- `src/engine/ludo.js`: deterministic game rules, standings, and AI heuristics for three difficulty tiers. The engine is versioned (`version: 3`) and carries `finishOrder` and `lastFinish` alongside the classic fields.
 - `public/engine.js`: browser-served copy of the shared engine. CI verifies it stays byte-for-byte synchronized with the source.
 - `public/`: responsive PWA frontend, manifest, styles, icons, and offline shell.
 - `public/boot.js`: restores the saved board theme before first paint. It lives in its own file rather than an inline script so the page stays free of inline code and satisfies a strict `script-src 'self'` policy.
 
 ## Rules the engine owns
+- **A committed roll.** `committedToken` returns the player's only token in play, if there is exactly one. `legalMoves` then offers that token and nothing else — a six does not offer the base tokens instead. The dice belong to the lone token, whatever they say.
+- **Automatic play.** `autoMoveToken` plays the committed token, or releases a token from base when nothing is out yet, or falls back to the single legal move. The table never asks a question it does not have to ask. The client applies it; the server still validates the move.
 - **Bonus roll on a capture.** Landing on an opponent keeps the turn with the capturer, who rolls again.
-- **Bonus move in the home lane.** Entering the home lane sets `bonusToken` and leaves `awaitingMove` true with the same die. `legalMoves` then restricts the move to that one token. The bonus cannot chain: only the first home-lane entry grants it.
-- **Automatic play.** `autoMoveToken` returns a token when the player has exactly one deployed token and exactly one legal move, and always prefers the bonus token. The client applies it; the server still validates the move.
+- **The home lane walks.** Entering the lane grants nothing. The token steps in one square at a time, and it never leaps.
+- **The home triangle pays.** A token that lands on the centre square earns the player one more move.
 - **Long games.** `checkGameEnd` ends a two-player game at the first finisher and a three- or four-player game only when everyone has finished. `advanceTurn` skips players who have already finished.
 - **Standings.** Finishers rank first in the order they finished; the rest rank by tokens home, then distance covered, then captures.
 
@@ -18,11 +20,19 @@
 - `public/profile.js`: the local profile card. A small, dependency-free module that reads and writes two `localStorage` keys — `parcheesi.profile` (name, statistics, recent matches) and `parcheesi.profile.photo` (a data URL). Photos are drawn to a canvas and re-encoded as a 256×256 JPEG so a picture can never fill the storage quota. Nothing is uploaded.
 - Every prompt-shaped interaction uses a real `<dialog>`: the name sheet, the table setup sheet, the table menu, the profile sheet, and a reusable confirmation sheet. All of them resolve a promise, validate before closing, and restore focus to whatever opened them.
 - The board is redrawn as SVG on every change. Tokens are grouped so a moved token can be transitioned from its old cell to its new one, and a captured token animates back to its base.
-- The board is a `.board-mount` with two siblings: the SVG canvas and the dice overlay. The overlay is positioned by a `data-seat` attribute and slides between the four home squares with a transition, so the die visibly travels to the player on turn.
+- The board is a `.board-mount` with two siblings: the SVG canvas and the dice overlay. The overlay is positioned by a `data-seat` attribute and slides between the four home squares with a transition, so the die visibly travels to the player on turn. The mount is capped against the viewport height, so the whole board and the dice are always on screen together.
+- The story of the game and the table's chat live in two separate panels. `renderGame` owns the story; the chat owns its own list, so a board redraw can never eat a message. Newest lines are scrolled into view.
 - The home square of the player on turn is drawn as a two-tone frame — a near-black stroke under a player-coloured one — with a gentle pulse.
 - The dice tumble while the authoritative result is in flight and land on the server's number.
 - A full-screen canvas above the board throws confetti when a player finishes and a larger burst for the champion. It honours the reduced-motion preference.
 - The client reconnects on its own with a backoff, reclaims the seat with the stored token, and shows its state in the connection pill.
+- A live table survives the browser. On load the client looks for the last room it was given a token for and rejoins it automatically; a reconnect that lands on a running game returns to the game view instead of the lobby. A reload, an app switch or a screenshot never costs a seat.
+
+## The design system
+- `public/styles.css` is one organised stylesheet: foundations, themes, shell, controls, home, lobby, the table, the board, the result, dialogs, layers and responsive rules.
+- The page is a dark parlour with one lit board in the middle of it. Warm brass accents on near-black, hairline borders with a single light edge, layered shadows, and a film of grain over the large dark fields.
+- Display type is a serif stack that ships with the operating system; the interface is a system grotesque; the labels are a monospace in wide capitals. No web fonts and no third-party requests, so the strict `script-src 'self'` / `style-src 'self'` policy still holds.
+- Three board themes — noir, classic and forest — repaint the board and the shell from the same tokens.
 
 ## Cloudflare deployment
 - `src/worker/index.js`: Cloudflare Worker entry point and Durable Object RoomHub.

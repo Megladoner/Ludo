@@ -80,21 +80,29 @@ with sync_playwright() as p:
     check("dice produced a face", face in list("⚀⚁⚂⚃⚄⚅"), face)
     check("turn advanced or awaiting move", page.inner_text("#move-hint") != "")
 
-    # Roll until a token is highlighted, then move it
+    # Roll until a token moves. A lone token plays itself, so the board may
+    # advance without a click — count the moves, not the taps.
+    def moves():
+        return page.evaluate("() => ((state.game && state.game.history) || []).filter((h) => h.type === 'move').length")
+
     moved = False
+    seen = moves()
     for _ in range(30):
-        hint = page.inner_text("#move-hint")
-        if "highlighted" in hint:
+        if "highlighted" in page.inner_text("#move-hint"):
             hits = page.locator("#game-board .hit")
             if hits.count():
                 before = page.locator("#game-board .token-g").count()
                 hits.first.click()
                 page.wait_for_timeout(700)
                 check("token move applied without error", page.locator("#game-board .token-g").count() == before)
-                moved = True
-                break
-        page.click("#roll-dice")
-        page.wait_for_timeout(800)
+        else:
+            page.click("#roll-dice")
+            page.wait_for_timeout(1000)
+        now = moves()
+        if now > seen:
+            seen = now
+            moved = True
+            break
     check("a token could be selected and moved", moved)
     page.screenshot(path=f"{OUT}/05-after-move.png")
 

@@ -23,7 +23,7 @@ function initialState(options = {}) {
     tokens: Array(TOKENS_PER_PLAYER).fill(-1), captures: 0, finishedAt: null,
   }));
   return {
-    version: 2, ruleset: 'standard', status: 'playing', players, currentPlayer: 0,
+    version: 3, ruleset: 'standard', status: 'playing', players, currentPlayer: 0,
     dice: null, consecutiveSixes: 0, awaitingMove: false, winner: null,
     turnNumber: 1, moveNumber: 0, history: [],
     // Players who have brought all four tokens home, in the order they did it.
@@ -40,11 +40,18 @@ function canMoveToken(state, playerIndex, tokenIndex, roll) {
   if (progress === -1) return roll === 6;
   return progress + roll <= FINISH_PROGRESS;
 }
+/*
+ * The roll belongs to a single token when the player has only one token in play.
+ * With a lone token out on the board the dice are committed to it — there is no
+ * choice to make, so the move is made for the player and nothing is ever asked.
+ */
 function legalMoves(state, roll = state.dice) {
   if (state.status !== 'playing' || !Number.isInteger(roll) || roll < 1 || roll > 6) return [];
   const player = state.players[state.currentPlayer];
   if (!player) return [];
+  const committed = committedToken(player);
   return player.tokens.flatMap((_, tokenIndex) => {
+    if (committed !== null && tokenIndex !== committed) return [];
     if (!canMoveToken(state, state.currentPlayer, tokenIndex, roll)) return [];
     // A bonus move belongs to one token only.
     if (state.bonusToken && state.bonusToken.player === player.id && state.bonusToken.token !== tokenIndex) return [];
@@ -57,6 +64,13 @@ function cloneState(state) { return structuredClone(state); }
 function isPlayerFinished(player) { return player.tokens.every((token) => token === FINISH_PROGRESS); }
 function hasFinished(state, playerId) { return (state.finishOrder || []).indexOf(playerId) !== -1; }
 function deployedCount(player) { return player.tokens.filter((token) => token >= 0).length; }
+// Tokens still in play: out on the board or in the home lane, but not yet home.
+function inPlayCount(player) { return player.tokens.filter((token) => token >= 0 && token < FINISH_PROGRESS).length; }
+// The token a roll is committed to: the only one still in play, if there is only one.
+function committedToken(player) {
+  const live = player.tokens.map((token, index) => ({ token, index })).filter((entry) => entry.token >= 0 && entry.token < FINISH_PROGRESS);
+  return live.length === 1 ? live[0].index : null;
+}
 
 // Removing a player (they left the table) forfeits their tokens and hands the turn on safely.
 function removePlayer(state, playerId) {
@@ -154,6 +168,7 @@ function applyMove(state, tokenIndex) {
   }
   // Reaching the home lane is worth a bonus roll for the token that got there.
   const enteredHome = oldProgress < HOME_ENTRY_PROGRESS && newProgress >= HOME_ENTRY_PROGRESS;
+  // The home triangle is the centre square: landing on it is the final step home.
   const finishedToken = newProgress === FINISH_PROGRESS;
   const completedPlayer = isPlayerFinished(player);
   if (completedPlayer && (next.finishOrder || []).indexOf(player.id) === -1) {
@@ -166,24 +181,13 @@ function applyMove(state, tokenIndex) {
     type: 'move', player: player.id, token: tokenIndex, from: oldProgress, to: newProgress,
     roll: next.dice, captured, finished: finishedToken, enteredHome, completedPlayer, turn: next.turnNumber,
   });
-  // A six or a capture earns the capturer another roll. Reaching the home lane is
-  // worth something better: one more move with that very token, on the same die.
+  // A six, a capture, or a token reaching the home triangle earns the player one
+  // more move. The home lane itself grants nothing — the token simply walks home.
   const rollUsed = next.dice;
-  const earnsBonusRoll = !completedPlayer && (rollUsed === 6 || captured.length > 0);
+  const earnsBonus = !completedPlayer && (rollUsed === 6 || captured.length > 0 || finishedToken);
   next.dice = null; next.awaitingMove = false; next.bonusToken = null;
   if (checkGameEnd(next)) return next;
-  if (enteredHome && !completedPlayer) {
-    next.bonusToken = { player: player.id, token: tokenIndex };
-    next.dice = rollUsed;
-    next.awaitingMove = true;
-    next.moveNumber += 1;
-    if (!legalMoves(next).length) {
-      next.bonusToken = null; next.dice = null; next.awaitingMove = false;
-      advanceTurn(next);
-    }
-    return next;
-  }
-  if (earnsBonusRoll) { next.moveNumber += 1; return next; }
+  if (earnsBonus) { next.moveNumber += 1; return next; }
   advanceTurn(next);
   return next;
 }
@@ -256,9 +260,10 @@ function chooseAIMove(state, random = Math.random, difficulty = 'normal') {
   return best;
 }
 /*
- * Auto-play: when a player has exactly one token on the board and that token is the
- * only thing they can legally do, the move happens without asking. A player who still
- * has tokens in base keeps their choice, so releasing a second token is never skipped.
+ * Auto-play. The table never asks a question it does not have to ask:
+ * - one token in play  -> the roll belongs to that token, and it moves by itself;
+ * - nothing in play    -> a six releases a token, and the first one out is taken;
+ * - two or more in play -> the player chooses, unless only one move is legal.
  */
 function autoMoveToken(state) {
   if (state.status !== 'playing' || !state.awaitingMove) return null;
@@ -266,10 +271,14 @@ function autoMoveToken(state) {
   if (!player) return null;
   const moves = legalMoves(state);
   if (!moves.length) return null;
-  if (state.bonusToken && state.bonusToken.player === player.id && moves.includes(state.bonusToken.token)) {
-    return state.bonusToken.token;
+  const committed = committedToken(player);
+  if (committed !== null) return moves.includes(committed) ? committed : null;
+  if (inPlayCount(player) === 0 && state.dice === 6) {
+    // Nothing on the board yet: bring a token out rather than making the player choose.
+    const release = player.tokens.findIndex((token) => token === -1);
+    return release === -1 ? null : release;
   }
-  if (deployedCount(player) === 1 && moves.length === 1) return moves[0];
+  if (moves.length === 1) return moves[0];
   return null;
 }
 function pickAiNames(count, taken = []) {
@@ -284,7 +293,7 @@ const api = {
   initialState, playerAt, globalTrackIndex, canMoveToken, legalMoves, legalActions,
   applyRoll, applyMove, chooseAIMove, tokenTrackCell, homeCount, tokenProgress,
   standings, dangerScore, pickAiNames, removePlayer, autoMoveToken,
-  isPlayerFinished, hasFinished, deployedCount, checkGameEnd,
+  isPlayerFinished, hasFinished, deployedCount, inPlayCount, committedToken, checkGameEnd,
 };
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 if (typeof globalThis !== 'undefined') globalThis.LudoEngine = api;

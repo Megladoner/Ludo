@@ -24,6 +24,7 @@ const state = {
   pendingJoin: null, reconnectTimer: null, reconnectAttempts: 0,
   intentionalClose: false, chatUnread: 0, sequence: -1,
   resultRecorded: false, autoMoveTimer: null, moveLock: 0, finishedSeen: [],
+  chat: [], resuming: false,
 };
 
 /* ---------------------------------------------------------------- utils -- */
@@ -569,14 +570,23 @@ function message(m) {
     state.color = m.playerColor;
     state.local = false;
     state.gameMode = 'friends';
-    state.resultRecorded = false;
-    state.finishedSeen = [];
     try { localStorage.setItem('parcheesi:' + m.invite, m.playerToken); } catch {}
     state.inviteUrl = location.origin + '/room/' + m.invite;
     rememberRoom(m.invite);
     closeJoinDialog();
-    renderLobby();
-    view('lobby-view');
+    if (m.room.status === 'playing' || m.room.status === 'finished') {
+      // The table is already running. A reconnect — after a dropped signal, a
+      // reload or a screenshot — has to land back in the game, not in the lobby.
+      state.game = m.room.state;
+      renderGame();
+      if (m.room.status === 'finished') result();
+      else { view('game-view'); maybeAutoMove(); }
+    } else {
+      state.resultRecorded = false;
+      state.finishedSeen = [];
+      renderLobby();
+      view('lobby-view');
+    }
     return;
   }
 
@@ -588,7 +598,7 @@ function message(m) {
       state.local = false;
       renderGame();
       if (m.room.status === 'finished') result();
-      else view('game-view');
+      else { view('game-view'); maybeAutoMove(); }
     } else {
       renderLobby();
       view('lobby-view');
@@ -611,13 +621,23 @@ function message(m) {
   if (m.type === 'room.error') {
     stopDice();
     if (state.pendingJoin) { showJoinError(m.error || 'That invitation did not work'); return; }
+    if (state.resuming) {
+      // The saved seat is gone. Clear it so the player is not pulled into a room
+      // that no longer exists on every page load.
+      state.resuming = false;
+      $('resume-room').hidden = true;
+      toast('That table has closed', 'error');
+      return;
+    }
     toast(m.error || 'Something went wrong', 'error');
     return;
   }
 
   if (m.type === 'room.closed') { resetRoom(); view('home-view'); toast('The table was closed', 'error'); return; }
   if (m.type === 'room.kicked') { resetRoom(); view('home-view'); toast('You were removed from the table', 'error'); return; }
-  if (m.type === 'chat.message') { addActivity(m.player + ': ' + m.text, 'CHAT', m.color); }
+  if (m.type === 'chat.message') {
+    addChat(m.text, m.player, m.color, m.player === playerName());
+  }
 }
 
 function resetRoom() {
@@ -629,6 +649,8 @@ function resetRoom() {
   state.local = false;
   state.sequence = -1;
   state.resultRecorded = false;
+  state.chat = [];
+  renderChat();
   clearTimeout(state.autoMoveTimer);
   layoutCache.clear();
 }
@@ -704,7 +726,6 @@ function renderLobby() {
 function computeLayout(game, interactive) {
   const turn = game.players[game.currentPlayer];
   const legal = interactive && game.awaitingMove ? E.legalMoves(game) : [];
-  const bonus = game.bonusToken;
   const items = [];
   game.players.forEach((player) => player.tokens.forEach((progress, index) => {
     let x, y, r = 0.36, done = false;
@@ -720,7 +741,7 @@ function computeLayout(game, interactive) {
     items.push({
       player, index, x, y, r, share: progress >= 0 && !done,
       can: player.id === turn?.id && legal.includes(index),
-      bonus: !!bonus && bonus.player === player.id && bonus.token === index,
+      homeward: progress >= E.HOME_ENTRY_PROGRESS && progress < E.FINISH_PROGRESS,
     });
   }));
   const groups = {};
@@ -789,8 +810,8 @@ function board(target, game, interactive) {
       group.appendChild(make('circle', { cx: 0, cy: 0, r: item.r + 0.13, class: 'b-ring b-ring-dark' }));
       group.appendChild(make('circle', { cx: 0, cy: 0, r: item.r + 0.13, class: 'b-ring' }));
     }
-    if (item.bonus) {
-      group.appendChild(make('circle', { cx: 0, cy: 0, r: item.r + 0.22, class: 'b-ring b-bonus' }));
+    if (item.homeward) {
+      group.appendChild(make('circle', { cx: 0, cy: 0, r: item.r + 0.18, class: 'b-ring b-homeward' }));
     }
     group.appendChild(make('circle', { cx: 0, cy: 0, r: item.r, class: 'token c-' + item.player.id }));
     group.appendChild(make('circle', { cx: -item.r * 0.28, cy: -item.r * 0.3, r: item.r * 0.38, class: 'token-shine' }));
@@ -838,8 +859,8 @@ function describeHistory(entry, game) {
     case 'roll': return `${name} rolled a ${entry.roll}.`;
     case 'move': {
       if (entry.captured && entry.captured.length) return `${name} moved token ${entry.token + 1} and sent ${entry.captured.length} token home — another roll.`;
-      if (entry.enteredHome) return `${name} brought token ${entry.token + 1} into the home lane — another roll.`;
-      if (entry.finished) return `${name} brought token ${entry.token + 1} all the way home.`;
+      if (entry.enteredHome) return `${name} walked token ${entry.token + 1} into the home lane.`;
+      if (entry.finished) return `${name} brought token ${entry.token + 1} home to the triangle — one more move.`;
       if (entry.completedPlayer) return `${name} brought every token home.`;
       return `${name} moved token ${entry.token + 1}.`;
     }
@@ -880,10 +901,11 @@ function renderGame() {
 
   const mine = state.local ? player.kind === 'human' : player.id === state.color;
   $('roll-dice').disabled = !mine || game.awaitingMove || over;
+  const legalNow = !over && game.awaitingMove ? E.legalMoves(game) : [];
   $('move-hint').textContent = over
     ? 'Nicely played.'
     : game.awaitingMove
-      ? 'Select a highlighted token.'
+      ? (legalNow.length === 1 ? 'Playing itself.' : 'Select a highlighted token.')
       : mine ? 'Your turn. Give it a roll.' : player.name + ' is thinking…';
 
   $('game-players').innerHTML = game.players.map((entry) => {
@@ -957,8 +979,12 @@ function result() {
   $('play-again').textContent = state.local ? 'Deal again →' : 'Rematch →';
   view('result-view');
 
-  if (!state.resultRecorded) {
+  const recordKey = 'parcheesi.recorded:' + (state.room?.invite || 'local');
+  const signature = (game.finishOrder || []).join(',') + '#' + (game.turnNumber || 0);
+  const alreadyRecorded = state.local ? state.resultRecorded : readJSON(recordKey, '') === signature;
+  if (!state.resultRecorded && !alreadyRecorded) {
     state.resultRecorded = true;
+    if (!state.local) writeJSON(recordKey, signature);
     if (state.local) {
       if (state.ai) recordMatch('computer', game.winner === 'red' ? 'won' : 'lost', game.players.length - 1, 'Against the computer');
       else recordMatch('friends', null, game.players.length - 1, 'Pass & play');
@@ -975,7 +1001,30 @@ function addActivity(text, label, color) {
   node.innerHTML = '<small>' + esc(label) + '</small>' + (color ? '<span class="seat-dot color-' + color + '"></span> ' : '') + esc(text);
   $('activity-list').prepend(node);
   setTimeout(() => node.classList.remove('is-new'), 400);
-  if (label === 'CHAT') markChatUnread();
+}
+
+// Chat is kept apart from the board story so a redraw never eats a message,
+// and the newest line is always scrolled into view where it can be read.
+function addChat(text, name, color, mine) {
+  state.chat.push({ text, name, color: color || '', mine: !!mine, at: Date.now() });
+  if (state.chat.length > 60) state.chat.shift();
+  renderChat();
+  if (!mine) markChatUnread();
+}
+
+function renderChat() {
+  const list = $('chat-list');
+  if (!list) return;
+  if (!state.chat.length) {
+    list.innerHTML = '<p class="empty-chat">Say hello to the table.</p>';
+    return;
+  }
+  list.innerHTML = state.chat.map((line) =>
+    '<div class="chat-line' + (line.mine ? ' is-mine' : '') + '">' +
+      (line.color ? '<span class="seat-dot color-' + line.color + '"></span>' : '') +
+      '<b>' + esc(line.name) + '</b><span>' + esc(line.text) + '</span></div>'
+  ).join('');
+  list.scrollTop = list.scrollHeight;
 }
 
 function markChatUnread() {
@@ -1233,9 +1282,10 @@ function chat() {
   const input = $('chat-input');
   const text = input.value.trim();
   if (!text) return;
-  if (state.local) addActivity(playerName() + ': ' + text, 'CHAT');
+  if (state.local) addChat(text, playerName(), 'red', true);
   else send('chat.send', { text });
   input.value = '';
+  input.focus();
 }
 
 /* ---------------------------------------------------------------- wiring -- */
@@ -1423,21 +1473,49 @@ function init() {
   preview();
 
   const last = readJSON('parcheesi.lastRoom', null);
+  const linked = location.pathname.match(/^\/room\/([a-zA-Z0-9_-]+)$/);
   if (last && last.invite && Date.now() - last.at < 24 * 60 * 60 * 1000) {
-    try { if (localStorage.getItem('parcheesi:' + last.invite)) { $('resume-room').hidden = false; $('resume-detail').textContent = 'Room ' + last.invite; } } catch {}
+    try {
+      if (localStorage.getItem('parcheesi:' + last.invite)) {
+        $('resume-room').hidden = false;
+        $('resume-detail').textContent = 'Room ' + last.invite;
+      }
+    } catch {}
   }
   $('resume-room').onclick = () => openJoinDialog(last?.invite || '');
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
-  const match = location.pathname.match(/^\/room\/([a-zA-Z0-9_-]+)$/);
-  if (match) {
-    $('join-code').value = match[1].toUpperCase();
+  if (linked) {
+    $('join-code').value = linked[1].toUpperCase();
     $('player-name').value = playerName();
-    openJoinDialog(match[1].toUpperCase());
+    openJoinDialog(linked[1].toUpperCase());
+    view('home-view');
+    setNetwork('idle');
+    return;
   }
+
   view('home-view');
   setNetwork('idle');
+
+  // A table that is still live is picked up again on its own. Reloading the page,
+  // switching apps or taking a screenshot should never end a game in progress.
+  if (last && last.invite && Date.now() - last.at < 24 * 60 * 60 * 1000) {
+    let token = null;
+    try { token = localStorage.getItem('parcheesi:' + last.invite); } catch {}
+    if (token) resumeRoom(last.invite, token);
+  }
+}
+
+// Reclaims a seat with the token this browser was given.
+async function resumeRoom(invite, token) {
+  state.resuming = true;
+  try {
+    await connect();
+    send('room.join', { invite, playerToken: token, name: playerName() });
+  } catch {
+    state.resuming = false;
+  }
 }
 
 init();
