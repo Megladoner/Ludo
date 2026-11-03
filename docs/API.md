@@ -19,11 +19,14 @@ Connect to `ws(s)://<host>/ws`. Messages are UTF-8 JSON text frames. Client payl
 | `room.create` | `{name}` | New socket |
 | `room.join` | `{invite, playerToken?, name}` | Valid invite or seat token |
 | `lobby.ready` | `{ready}` | Room member, lobby only |
+| `lobby.rename` | `{name}` | Room member |
+| `lobby.kick` | `{playerId}` | Current host; cannot remove the host |
 | `lobby.start` | `{}` | Current host; at least two ready players |
 | `game.roll` | `{}` | Current player only |
 | `game.move` | `{token}` | Current player; engine-validated |
+| `game.rematch` | `{}` | Room member; only once the game has finished |
 | `game.state` | `{}` | Room member |
-| `room.leave` | `{}` | Room member |
+| `room.leave` | `{}` | Room member; releases the seat |
 | `room.close` | `{}` | Current host |
 | `chat.send` | `{text}` | Room member; 240-character limit |
 
@@ -34,6 +37,12 @@ Connect to `ws(s)://<host>/ws`. Messages are UTF-8 JSON text frames. Client payl
 - `game.started`: initial authoritative game snapshot.
 - `game.update`: authoritative state, room sequence, and event metadata.
 - `room.error`: rejected request reason.
+- `room.kicked`: the host removed this player from the table.
+- `room.closed`: the host closed the table.
 - `chat.message`: room chat message and sequence.
 
-The seat token is a bearer credential. Keep it private. Room snapshots deliberately omit seat tokens. Room invitation tokens are random and separate from internal UUIDs.
+Every server message carries a top-level `sequence` that increases with each state change. Clients drop frames older than the last sequence they processed.
+
+The seat token is a bearer credential. Keep it private. Room snapshots deliberately omit seat tokens.
+
+Invitation codes are eight characters drawn from `ABCDEFGHJKMNPQRSTUVWXYZ23456789` — no look-alike characters, so a code can be dictated over a phone. Entry normalises case and ignores spaces, dashes and slashes. The code is separate from internal UUIDs.

@@ -20,15 +20,24 @@ No environment variables, API keys, or manually created databases are required. 
 ## What works on the hosted URL
 
 - Main game page and PWA assets
-- Local pass-and-play (2–4 players)
-- Solo play against AI
+- Local pass-and-play (2–4 players) with a named seat for every player
+- Solo play against AI at three difficulty tiers
 - Private multiplayer rooms (2–4 players)
-- Invite links, ready lobby, server-generated dice and server-validated moves
-- Reconnection using the seat token stored in that browser
-- Live room snapshots and in-room chat
+- Readable invitation codes and invite links, ready lobby, server-generated dice and server-validated moves
+- Reconnection using the seat token stored in that browser, with automatic retry and backoff
+- Live room snapshots, in-room chat, rename, host removal, and a rematch flow
 - Room persistence in Durable Object storage
 
 The room database starts empty on the first Cloudflare deployment. Existing Node-hosted room links and reconnect tokens are not imported.
+
+## The interface
+
+Nothing uses a native browser prompt any more.
+
+- **What should we call you?** — a proper sheet with a labelled field, a character counter, and a "Surprise me" suggestion. Used when opening a table, changing your seat, or setting your profile from the avatar.
+- **How many players?** — a sheet with 2/3/4 seat cards showing the colours that will take part, a name field per seat, and — against the AI — a difficulty choice.
+- **Table menu** — the `•••` button opens copy-link, rules, sound, reduced motion, full screen, and leave.
+- **Confirmations** — leaving a table or removing a player always asks first.
 
 ## Run locally with Node.js
 
@@ -43,6 +52,12 @@ npm start
 
 The Node server uses `src/server/` and persists room data in `data/rooms.json`. It is independent from Cloudflare's Durable Object room store.
 
+## Quality gates
+
+- `npm run check` — syntax-checks every source file, verifies the browser engine is byte-for-byte identical to the shared engine, and asserts the page ships no inline styles or inline scripts.
+- `npm test` — engine rules, AI behaviour, invitation codes, and live multiplayer against the real WebSocket server.
+- `python3 tools/browser-smoke.py` and `python3 tools/browser-multiplayer.py` — headless Chromium drives the real interface against the real server over a real WebSocket. See `tools/README.md`.
+
 ## Scope
 
-Not yet implemented: public matchmaking, accounts, QR invites, alternate rulesets, adjustable AI difficulty/deep search, sound effects, token/dice customization, full rematch flow, persistent player profiles, and full game replay.
+Not yet implemented: public matchmaking, accounts, QR invites, alternate rulesets, token/dice customization, and persistent player profiles.

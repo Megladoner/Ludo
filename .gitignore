@@ -6,3 +6,7 @@ data/*.json
 data/*.tmp
 coverage/
 .DS_Store
+
+artifacts/
+__pycache__/
+*.pyc

@@ -7,7 +7,7 @@
     "dev": "node src/server/index.js",
     "start": "NODE_ENV=production node src/server/index.js",
     "test": "node --test",
-    "check": "node --check src/server/index.js && node --check src/server/rooms.js && node --check src/server/websocket.js && node --check src/engine/ludo.js && node --check src/worker/index.js && node --check public/engine.js && node --check public/app.js && node --check public/sw.js && node -e \"if(require('fs').readFileSync('src/engine/ludo.js','utf8')!==require('fs').readFileSync('public/engine.js','utf8'))process.exit(1)\"",
+    "check": "node --check src/server/index.js && node --check src/server/rooms.js && node --check src/server/websocket.js && node --check src/engine/ludo.js && node --check src/worker/index.js && node --check public/engine.js && node --check public/app.js && node --check public/boot.js && node --check public/sw.js && node -e \"if(require('fs').readFileSync('src/engine/ludo.js','utf8')!==require('fs').readFileSync('public/engine.js','utf8'))process.exit(1)\" && node -e \"const fs=require('fs');const h=fs.readFileSync('public/index.html','utf8');if(!/src=\\\"\\/boot.js\\\"/.test(h))process.exit(1);if(/style=\\\"/.test(h))process.exit(1)\"",
     "dev:worker": "wrangler dev",
     "deploy": "wrangler deploy"
   },
