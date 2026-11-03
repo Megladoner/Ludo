@@ -11,7 +11,7 @@
   <div class="app-shell">
     <header class="topbar">
       <a class="brand" href="/" aria-label="Parcheesi home"><span class="brand-mark"><i></i><i></i><i></i><i></i></span><span>PARCHEESI</span></a>
-      <div class="topbar-right"><span class="online-indicator" id="network-status"><i></i><span id="network-label">READY TO PLAY</span></span><button class="icon-button" id="settings-open" aria-label="Open settings" title="Settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button><button class="avatar" id="avatar-button" aria-label="Your profile and display name" title="Your profile"><span id="avatar-initial">P</span><img id="avatar-photo" alt="" hidden></button></div>
+      <div class="topbar-right"><span class="online-indicator" id="network-status"><i></i><span id="network-label">READY TO PLAY</span></span><button class="icon-button voice-button" id="voice-toggle" aria-label="Voice chat" title="Voice chat — click to talk, hold V to push to talk" hidden><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="11.5" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0"/><path d="M12 17.5V21"/><path d="M4 4l16 16" class="voice-slash"/></svg></button><button class="icon-button" id="settings-open" aria-label="Open settings" title="Settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button><button class="avatar" id="avatar-button" aria-label="Your profile and display name" title="Your profile"><span id="avatar-initial">P</span><img id="avatar-photo" alt="" hidden></button></div>
     </header>
     <main id="app" class="main-content">
       <section id="home-view" class="view home-view">
@@ -42,6 +42,7 @@
         <div class="result-card"><p class="eyebrow" id="result-eyebrow">A GAME WELL PLAYED</p><h1 id="result-title">Victory.</h1><p id="result-subtitle">The table has a winner.</p><div class="podium" id="result-podium"></div><div id="result-stats" class="result-stats"></div><div class="result-actions"><button class="button button-primary" id="play-again">Play again →</button><button class="text-button" data-go-home>Back to home</button></div></div>
       </section>
     </main>
+    <div class="voice-sinks" id="voice-sinks" aria-hidden="true"></div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <canvas id="confetti" class="confetti-layer" aria-hidden="true"></canvas>
 
@@ -63,6 +64,7 @@
         <p class="eyebrow" id="name-eyebrow">YOUR SEAT</p><h2 id="name-heading">What should we call you?</h2>
         <p class="modal-note" id="name-note">This is the name the other players will see.</p>
         <label class="field"><span class="field-label">DISPLAY NAME</span><input id="name-input" autocomplete="name" placeholder="Player" maxlength="20" required><small class="field-hint"><span id="name-count">0</span>/20 characters</small></label>
+        <div class="setting-row create-voice-option" id="create-voice-option" hidden><label for="create-voice-setting"><b>Voice chat</b><small>Let the table talk to each other</small></label><input type="checkbox" class="switch" id="create-voice-setting" checked></div>
         <p class="dialog-error" id="name-error" role="alert" hidden></p>
         <div class="modal-actions"><button type="button" class="button button-quiet" id="name-random">Surprise me</button><button type="submit" class="button button-primary" id="name-confirm">Continue</button></div>
       </form>
@@ -99,7 +101,7 @@
         <div class="menu-list">
           <button type="button" class="menu-item" id="menu-copy"><span aria-hidden="true">⧉</span><div><b>Copy invitation</b><small id="menu-copy-state">Share the link with your table</small></div></button>
           <button type="button" class="menu-item" id="menu-rules"><span aria-hidden="true">✦</span><div><b>How to play</b><small>The rules of the classic board</small></div></button>
-          <button type="button" class="menu-item" id="menu-sound"><span aria-hidden="true">♪</span><div><b>Sound effects</b><small id="menu-sound-state">On</small></div></button>
+          <button type="button" class="menu-item" id="menu-voice"><span aria-hidden="true">◉</span><div><b>Voice chat</b><small id="menu-voice-state">Off</small></div></button><button type="button" class="menu-item" id="menu-sound"><span aria-hidden="true">♪</span><div><b>Sound effects</b><small id="menu-sound-state">On</small></div></button>
           <button type="button" class="menu-item" id="menu-motion"><span aria-hidden="true">◌</span><div><b>Reduced motion</b><small id="menu-motion-state">Off</small></div></button>
           <button type="button" class="menu-item" id="menu-fullscreen"><span aria-hidden="true">⛶</span><div><b>Full screen</b><small>Give the board the whole display</small></div></button>
           <button type="button" class="menu-item menu-item-danger" id="menu-leave"><span aria-hidden="true">⤶</span><div><b>Leave the table</b><small>Return to the main menu</small></div></button>
@@ -154,5 +156,5 @@
       </form>
     </dialog>
   </div>
-  <script src="/engine.js"></script><script src="/profile.js" defer></script><script src="/app.js" defer></script>
+  <script src="/engine.js"></script><script src="/profile.js" defer></script><script src="/voice.js" defer></script><script src="/app.js" defer></script>
 </body></html>

@@ -4,7 +4,7 @@
 Last verified in the supplied environment (Node.js 22.19.0):
 
 - `npm run check`: passed. Every source file passes `node --check`, the browser engine is byte-for-byte identical to the shared engine, and the page ships no inline scripts or inline styles.
-- `npm test`: **66 tests passed, 0 failed.** Verified on five consecutive runs with no flakes.
+- `npm test`: **83 tests passed, 0 failed.** Verified on five consecutive runs with no flakes.
 
 ### Engine and protocol coverage
 - Board geometry: a gap-free ring of 52 unique cells, safe start squares, and every colour's home-lane entry aligned with its final shared-track cell.
@@ -23,6 +23,16 @@ Last verified in the supplied environment (Node.js 22.19.0):
 - AI: every difficulty tier returns a legal move, the ruthless tier takes a capture the relaxed tier walks past, and AI names are unique.
 - Invitation codes: 200 generated codes contain no look-alike characters, and every alphabet character survives normalisation.
 
+### Voice chat
+- The handshake: the seat earlier in the table opens the line, so the two browsers never offer at the same time, and both sides always agree on which that is.
+- The vocabulary: an unknown kind, a seat that is not at the table and an oversized payload are all refused, and a broadcast needs no seat while a targeted message does.
+- The ICE configuration: only real STUN and TURN servers survive; without a TURN key the table gets a free STUN server; with one it gets a relay as well and the credential lives less than 48 hours; a key that does not work must not take the voice down.
+- Speaking: sound above a threshold is counted as speech, and quiet is not.
+
+### Voice chat on the wire
+- A table may turn voice off: the flag travels in the room snapshot, and a table with voice off refuses every handshake.
+- The handshake is relayed only to the seat it was addressed to, and a handshake for a seat that is not at the table is refused.
+
 ### Multiplayer integration
 Two independent WebSocket clients against a separately spawned server, covering room creation, invitation join, ready state, host disconnect with deterministic host migration, seat-token reconnection, start authorization, wrong-turn rejection, server-generated dice, legal token movement, matching authoritative sequence and state on both clients, renaming, host removal, and seat release on leave.
 
@@ -34,10 +44,11 @@ Headless Chromium (Playwright) drives the real application against the real serv
 - **33-check interface suite** (`tools/browser-smoke.py`): every dialog opens, validates, cancels, and confirms; the name sheet replaces the old browser prompt; the setup sheet replaces the old player-count prompt; dice produce a face; tokens are selected and moved; the table menu and confirmation sheet work; an invalid invitation shows an inline error and keeps the sheet open; the theme previews live and persists; Escape closes a sheet; the mobile board renders; and no uncaught page errors occur.
 - **69-check feature suite** (`tools/browser-features.py`): the die sits in the first player's home square and transfers to the next player's, and visibly moves across the board; the active home square is outlined, the outline follows the player on turn, lands on the correct home square, measures at least 4px on screen, and cycles with the turns; a single deployed token moves by itself; a six with a token still in the box does not move anything and asks the player to choose between deploying and moving, and either answer can be given; a six with an empty board asks which token should come out; a six with an empty box moves the lone token by itself; two deployed tokens hand the choice back to the player; the shipped engine counts only the tokens on the board, never deploys a token on its own, and brings automatic movement back for a player with one token; a token entering the home lane stops there and a six does not carry it past; a token that reaches the centre triangle earns another move; a capture sends the opponent home, keeps the turn with the capturer, and is recorded; the table plays on after a finisher; confetti is thrown and the result screen names the champion and ranks the finishers; the match is recorded against the computer as a win; the profile sheet opens with its stat cards and computer/friends breakdown; a photo can be uploaded, stored locally and removed; the name is remembered; the history is listed; and the profile can be cleared; three sixes in a row put the deployed token back in the box, pass the turn on, and are written into the story of the game.
 - **Session survival** (same suite): a room is opened, a second player joins, the game starts, and the host's page is reloaded. The game is still on screen afterwards, the seat was reclaimed with the same invitation code, and the board came back. A chat message sent by the other player arrives, names its sender, and is still there after the board is redrawn.
+- **27-check voice suite** (`tools/browser-voice.py`): two real browsers open a real peer connection — the ICE endpoint answers with usable servers; the microphone button appears at a table and starts closed; the microphone opens on request and the button shows it live; the two browsers hold a connection in state `connected`; the far end receives an unmuted audio track; the far end is metered and its speech is spotted; the seat marker shows who is speaking; muting on the far end reaches the near end and marks the seat as muted; push to talk reopens the microphone; leaving the voice closes the line and quiets the marker; the table still starts a game with voice in the room; and the seat markers sit on the players.
 - **22-check multiplayer suite** (`tools/browser-multiplayer.py`): two browsers create and join a room, sync readiness, start together, agree on whose turn it is, show the die in the same home square and frame the same home square on both screens, move a token, stay in sync, exchange chat, show an unread badge, and handle one player leaving mid-game without deadlocking the turn.
 - Board fitting was verified at 1440×950, 1920×1080 and 1280×800 — the whole board and the dice controls are on screen without scrolling. The board is capped against the viewport height so it can never push the dice out of reach.
 
-**Total: 66 unit tests and 124 browser checks, all passing.**
+**Total: 83 unit tests and 151 browser checks, all passing.**
 
 ## Environment limitations
 - PostgreSQL, Redis, Docker, and deployment credentials were not available. Database integration, external vulnerability scanning, and a hosted deployment were not performed.

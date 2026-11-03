@@ -27,6 +27,25 @@ After connecting the repository, pushes to `main` trigger deployments automatica
 - The Node and Cloudflare deployments use separate room stores and do not synchronize.
 - Cloudflare account limits and pricing apply.
 
+### Voice chat — the optional relay
+
+Voice chat works out of the box: the browsers connect directly to one another over Cloudflare's free STUN service, and the audio never touches the Worker.
+
+A **TURN relay** is only needed for players on strict mobile or corporate networks, where a direct line cannot be opened. Cloudflare's managed TURN carries a free allowance of **1,000 GB a month** — roughly 71,000 relayed hours of voice, which a casual table will never reach. Adding it takes about two minutes and costs nothing inside that allowance:
+
+1. Open **Cloudflare Dashboard → Realtime → TURN** and create a TURN key.
+2. Create an API token with permission to use the TURN key (`Realtime TURN — Edit`).
+3. Store both as Worker secrets:
+
+```bash
+npx wrangler secret put TURN_KEY_ID
+npx wrangler secret put TURN_API_TOKEN
+```
+
+The key never reaches a browser. The Worker mints a short-lived credential (12 hours) for each table that asks and hands that to the client. Without the secrets, `GET /api/voice/ice` answers with STUN only and voice still works for most players.
+
+The Node deployment takes the same two values as environment variables.
+
 ### Smoke test after deployment
 
 Open the Worker URL in two different browsers or browser profiles:

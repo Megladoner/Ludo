@@ -28,6 +28,7 @@ No environment variables, API keys, or manually created databases are required. 
 - Live room snapshots, in-room chat, rename, host removal, and a rematch flow
 - Room persistence in Durable Object storage
 - A local profile card: matches played, won and lost, split between the computer and friends, with a name and a photo
+- Voice chat at the table: a browser-to-browser line, push-to-talk on **V**, a mute button, and a marker on every seat that is talking
 
 The room database starts empty on the first Cloudflare deployment. Existing Node-hosted room links and reconnect tokens are not imported.
 
@@ -42,6 +43,16 @@ The room database starts empty on the first Cloudflare deployment. Existing Node
 - **Three sixes** forfeit the turn, and every token touched during that run of sixes goes back where it was — a token that was brought out returns to the box, a token that was moved returns to its square.
 - **Two players** end the game the moment the first player brings all four tokens home.
 - **Three or four players** play on until everyone is home, so the table gets a full finishing order. The first player home is still the champion.
+
+## Talking at the table
+
+- The host who opens a table may switch **voice chat** off while creating it. It is on by default.
+- **The microphone button** in the top bar appears once you are at a private table. Click it to open your microphone; click again to mute.
+- **Hold `V`** to push to talk. It works even when you are muted, so the table only ever hears you when you mean to speak.
+- **The marker** beside each name shows who is talking, who has gone quiet and who has left the voice.
+- **Voice chat** in the table menu turns the microphone off completely.
+- The audio goes **straight from one browser to the next**. The game server only carries the small handshake that opens the line — it never sees or stores a sound. A relay is used only when a direct line cannot be opened, and Cloudflare's free allowance covers it many times over.
+- `docs/VOICE_CHAT.md` has the full picture.
 
 ## The look
 

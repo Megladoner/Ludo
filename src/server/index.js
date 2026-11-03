@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { acceptUpgrade } = require('./websocket');
 const rooms = require('./rooms');
+const { iceServers } = require('../voice/ice');
 const ROOT = path.resolve(__dirname, '../../public');
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -17,11 +18,18 @@ function rateLimit(req, res) {
   if (record.count > 180) { res.writeHead(429, { 'content-type': 'application/json' }); res.end('{"error":"Rate limit exceeded"}'); return false; }
   return true;
 }
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   if (!rateLimit(req, res)) return;
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (req.method === 'GET' && url.pathname === '/health') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ ok: true, service: 'parcheesi', time: Date.now() })); return; }
   if (req.method === 'GET' && url.pathname === '/api/config') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ publicUrl: process.env.PUBLIC_URL || `http://${req.headers.host}` })); return; }
+  if (req.method === 'GET' && url.pathname === '/api/voice/ice') {
+    // STUN is free and always available. The relay is added when a TURN key
+    // is configured in the environment.
+    const config = await iceServers({ TURN_KEY_ID: process.env.TURN_KEY_ID, TURN_API_TOKEN: process.env.TURN_API_TOKEN });
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(config)); return;
+  }
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, { allow: 'GET, HEAD' }); res.end(); return; }
   let pathname = decodeURIComponent(url.pathname);
   if (pathname === '/' || /^\/room\/[a-zA-Z0-9_-]+$/.test(pathname)) pathname = '/index.html';
@@ -32,7 +40,7 @@ const server = http.createServer((req, res) => {
   fs.readFile(file, (error, data) => {
     if (error) { res.writeHead(404); res.end('Not found'); return; }
     const ext = path.extname(file);
-    res.writeHead(200, { 'content-type': MIME[ext] || 'application/octet-stream', 'cache-control': ext === '.html' ? 'no-cache' : 'public, max-age=3600', 'x-content-type-options': 'nosniff', 'referrer-policy': 'strict-origin-when-cross-origin', 'content-security-policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" });
+    res.writeHead(200, { 'content-type': MIME[ext] || 'application/octet-stream', 'cache-control': ext === '.html' ? 'no-cache' : 'public, max-age=3600', 'x-content-type-options': 'nosniff', 'referrer-policy': 'strict-origin-when-cross-origin', 'content-security-policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' ws: wss: stun: turn: turns:; media-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" });
     if (req.method === 'HEAD') res.end(); else res.end(data);
   });
 });

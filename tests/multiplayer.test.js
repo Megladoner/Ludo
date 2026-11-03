@@ -117,15 +117,19 @@ test('independent clients support invitations, readiness, host migration, reconn
     const activeColor = currentRoom.state.players[currentRoom.state.currentPlayer].id;
     activeClient = activeColor === 'red' ? returningHost : guest;
     activeClient.send({ type: 'game.roll' });
-    update = await activeClient.wait((m) => m.type === 'game.update' && m.event.type === 'roll');
+    // Both clients receive every update, so match only the one belonging to
+    // the roll this client just made. Without that, a client can pick up the
+    // other player's older update and lose the thread.
+    update = await activeClient.wait((m) => m.type === 'game.update' && m.event.type === 'roll' && m.event.player === activeColor);
     currentRoom = update.room;
     assert.ok(update.event.roll >= 1 && update.event.roll <= 6);
     sawPendingMove = update.room.state.awaitingMove;
   }
   assert.equal(sawPendingMove, true, 'a six eventually offers a move');
 
+  const movingColor = currentRoom.state.players[currentRoom.state.currentPlayer].id;
   activeClient.send({ type: 'game.move', token: 0 });
-  const moved = await activeClient.wait((m) => m.type === 'game.update' && m.event.type === 'move');
+  const moved = await activeClient.wait((m) => m.type === 'game.update' && m.event.type === 'move' && m.event.player === movingColor);
   const otherClient = activeClient === returningHost ? guest : returningHost;
   const mirrored = await otherClient.wait((m) => m.type === 'game.update' && m.sequence === moved.sequence);
   const moverColor = moved.event.player;
@@ -170,4 +174,62 @@ test('leaving a table releases the seat for everyone else', async (t) => {
   const trimmed = await host.wait((m) => m.type === 'room.snapshot' && m.room.players.length === 1);
   assert.equal(trimmed.room.players.length, 1);
   assert.equal(trimmed.room.players[0].name, 'Host');
+});
+
+// --- Voice chat ---------------------------------------------------------------
+
+test('room voice can be turned off, and the room says so', async (t) => {
+  const port = 3190;
+  await startServer(t, port);
+  const host = await openClient(t, port);
+  const guest = await openClient(t, port);
+  host.send({ type: 'room.create', name: 'Host', voiceEnabled: false });
+  const created = await host.wait((m) => m.type === 'room.created');
+  assert.equal(created.room.voiceEnabled, false);
+  guest.send({ type: 'room.join', invite: created.invite, name: 'Guest' });
+  const joined = await guest.wait((m) => m.type === 'room.joined');
+  assert.equal(joined.room.voiceEnabled, false);
+});
+
+test('voice signalling is relayed only to the seat it was addressed to', async (t) => {
+  const port = 3191;
+  await startServer(t, port);
+  const host = await openClient(t, port);
+  const guest = await openClient(t, port);
+  host.send({ type: 'room.create', name: 'Host', voiceEnabled: true });
+  const created = await host.wait((m) => m.type === 'room.created');
+  assert.equal(created.room.voiceEnabled, true);
+  guest.send({ type: 'room.join', invite: created.invite, name: 'Guest' });
+  const joined = await guest.wait((m) => m.type === 'room.joined');
+  const data = { type: 'offer', sdp: 'test-session-description' };
+  host.send({ type: 'voice.signal', kind: 'offer', to: 'green', data });
+  const relayed = await guest.wait((m) => m.type === 'voice.signal');
+  assert.equal(relayed.kind, 'offer');
+  assert.equal(relayed.from, 'red');
+  assert.deepEqual(relayed.data, data);
+});
+
+test('a room that turned voice off refuses the handshake', async (t) => {
+  const port = 3192;
+  await startServer(t, port);
+  const host = await openClient(t, port);
+  const guest = await openClient(t, port);
+  host.send({ type: 'room.create', name: 'Host', voiceEnabled: false });
+  const created = await host.wait((m) => m.type === 'room.created');
+  guest.send({ type: 'room.join', invite: created.invite, name: 'Guest' });
+  await guest.wait((m) => m.type === 'room.joined');
+  host.send({ type: 'voice.signal', kind: 'offer', to: 'green', data: { type: 'offer', sdp: 'not-allowed' } });
+  const rejected = await host.wait((m) => m.type === 'room.error');
+  assert.match(rejected.error, /voice chat is disabled/i);
+});
+
+test('a handshake for a seat that is not at the table is refused', async (t) => {
+  const port = 3193;
+  await startServer(t, port);
+  const host = await openClient(t, port);
+  host.send({ type: 'room.create', name: 'Host' });
+  await host.wait((m) => m.type === 'room.created');
+  host.send({ type: 'voice.signal', kind: 'offer', to: 'yellow', data: { type: 'offer', sdp: 'nobody' } });
+  const rejected = await host.wait((m) => m.type === 'room.error');
+  assert.match(rejected.error, /not at this table/i);
 });
