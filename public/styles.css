@@ -1433,8 +1433,8 @@ input:focus {
 
 
 /* Optional room voice — compact, responsive, and matched to the existing parlour UI. */
-.create-voice-option { margin: 14px 0 2px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); }
-.voice-panel { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 14px 0 4px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-md); background: linear-gradient(135deg, var(--panel), var(--panel-2)); }
+.create-voice-option { margin: 14px 0 2px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+.voice-panel { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 14px 0 4px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-md); background: linear-gradient(135deg, var(--surface), var(--surface-2)); }
 .voice-panel[hidden] { display: none !important; }
 .voice-panel-copy { display: grid; gap: 4px; min-width: 0; }
 .voice-panel-copy .eyebrow { margin: 0; }
@@ -1442,13 +1442,13 @@ input:focus {
 .voice-panel-copy small { color: var(--muted); font-size: 11px; line-height: 1.45; }
 .voice-toggle { flex: 0 0 auto; white-space: nowrap; min-height: 38px; }
 .voice-bars { display: none; align-items: center; gap: 2px; height: 15px; margin-left: auto; }
-.voice-bars i { display: block; width: 2px; height: 4px; border-radius: 2px; background: var(--accent); }
+.voice-bars i { display: block; width: 2px; height: 4px; border-radius: 2px; background: var(--brass); }
 .is-speaking .voice-bars { display: inline-flex; }
 .is-speaking .voice-bars i { animation: voice-wave .72s ease-in-out infinite alternate; }
 .is-speaking .voice-bars i:nth-child(2) { animation-delay: .18s; }
 .is-speaking .voice-bars i:nth-child(3) { animation-delay: .34s; }
-.player-seat.is-speaking .seat-dot, .game-player.is-speaking .seat-dot { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 15%, transparent), 0 0 16px color-mix(in srgb, var(--accent) 70%, transparent); }
-.player-seat.is-speaking, .game-player.is-speaking { border-color: color-mix(in srgb, var(--accent) 58%, var(--line)); }
+.player-seat.is-speaking .seat-dot, .game-player.is-speaking .seat-dot { box-shadow: 0 0 0 4px color-mix(in srgb, var(--brass) 15%, transparent), 0 0 16px color-mix(in srgb, var(--brass) 70%, transparent); }
+.player-seat.is-speaking, .game-player.is-speaking { border-color: color-mix(in srgb, var(--brass) 58%, var(--line)); }
 @keyframes voice-wave { from { height: 4px; opacity: .62; } to { height: 14px; opacity: 1; } }
 @media (max-width: 620px) {
   .voice-panel { align-items: stretch; flex-direction: column; gap: 10px; }

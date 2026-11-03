@@ -666,8 +666,9 @@ function message(m) {
 }
 
 function resetRoom() {
-  voiceClient.sync(null, null);
   state.room = null;
+  voiceClient.sync(null, null);
+  updateVoiceUI(voiceClient.getState());
   state.game = null;
   state.token = null;
   state.color = null;

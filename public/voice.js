@@ -23,7 +23,7 @@
     function clearAll(){for(const id of Array.from(peers.keys()))closePeer(id);for(const id of Array.from(meters.keys()))removeMeter(id);if(stream){stream.getTracks().forEach(track=>track.stop());stream=null;}micOn=false;busy=false;error='';if(meterTimer){clearInterval(meterTimer);meterTimer=null;}if(audioContext){try{audioContext.close();}catch{}audioContext=null;}speaking.clear();}
     function ensurePeer(id){
       if(peers.has(id))return peers.get(id);
-      const pc=new RTCPeerConnection({iceServers:ICE}),transceiver=pc.addTransceiver('audio',{direction:'sendrecv'}),peer={pc,transceiver,audio:null,remoteStream:null};peers.set(id,peer);
+      const pc=new RTCPeerConnection({iceServers:ICE}),transceiver=pc.addTransceiver('audio',{direction:'sendrecv'}),peer={pc,transceiver,audio:null,remoteStream:null};peers.set(id,peer);if(stream)transceiver.sender.replaceTrack(stream.getAudioTracks()[0]).catch(()=>{});
       pc.onicecandidate=event=>{if(event.candidate)sendSignal(id,{type:'candidate',candidate:event.candidate.toJSON?event.candidate.toJSON():event.candidate});};
       pc.ontrack=event=>{const media=event.streams?.[0]||new MediaStream([event.track]);peer.remoteStream=media;if(!peer.audio){peer.audio=document.createElement('audio');peer.audio.autoplay=true;peer.audio.playsInline=true;peer.audio.setAttribute('aria-hidden','true');document.body.appendChild(peer.audio);}peer.audio.srcObject=media;peer.audio.play?.().catch(()=>{});addMeter(id,media);event.track.onended=()=>removeMeter(id);};
       pc.onconnectionstatechange=()=>{if(pc.connectionState==='failed'||pc.connectionState==='closed')markSpeaking(id,false);};
