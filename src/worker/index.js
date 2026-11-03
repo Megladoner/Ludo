@@ -45,6 +45,7 @@ export class RoomHub {
     this.env = env;
     this.rooms = new Map();
     this.eventRates = new WeakMap();
+    this.queue = Promise.resolve();
     this.ready = this.restore();
   }
   async restore() {
@@ -258,21 +259,37 @@ export class RoomHub {
     pair[1].serializeAttachment({ ip });
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
+  enqueue(task) {
+    this.queue = this.queue.then(task).catch((error) => {
+      console.error("RoomHub task failed", error);
+    });
+    return this.queue;
+  }
   async webSocketMessage(ws, message) {
     await this.ready;
-    try {
-      if (typeof message !== "string") throw new Error("Only JSON text messages are supported");
-      await this.handle(ws, JSON.parse(message));
-    } catch (error) {
-      peerFor(ws).send({ type: "room.error", error: error?.message || "Malformed message" });
-    }
+    return this.enqueue(async () => {
+      try {
+        if (typeof message !== "string") throw new Error("Only JSON text messages are supported");
+        await this.handle(ws, JSON.parse(message));
+      } catch (error) {
+        peerFor(ws).send({ type: "room.error", error: error?.message || "Malformed message" });
+      }
+    });
   }
-  async webSocketClose(ws) { await this.ready; await this.disconnect(ws); }
-  async webSocketError(ws) { await this.ready; await this.disconnect(ws); }
+  async webSocketClose(ws) {
+    await this.ready;
+    return this.enqueue(() => this.disconnect(ws));
+  }
+  async webSocketError(ws) {
+    await this.ready;
+    return this.enqueue(() => this.disconnect(ws));
+  }
   async alarm() {
     await this.ready;
-    await this.cleanup();
-    await this.ctx.storage.setAlarm(Date.now() + 60 * 60 * 1000);
+    return this.enqueue(async () => {
+      await this.cleanup();
+      await this.ctx.storage.setAlarm(Date.now() + 60 * 60 * 1000);
+    });
   }
 }
 
