@@ -64,3 +64,12 @@ A client that reloads the page, loses signal or is interrupted rejoins with `roo
 ## Local profile card
 
 The profile card never touches the network. It is written to `localStorage` in the browser under `parcheesi.profile` and `parcheesi.profile.photo`, and it is not represented in any protocol message. No server endpoint accepts or returns profile data.
+
+
+## Optional room voice
+
+Room creation may include `voiceEnabled: true`. The flag is stored with the room and included in every safe room snapshot. It is immutable for the life of that room. If omitted or false, voice signaling is rejected and clients must not initialize voice connections.
+
+A connected member may send `voice.signal` with `targetId` and `data` (`offer`, `answer`, or `candidate`). The server validates that voice is enabled, the recipient is seated in the same room, the sender is not targeting themselves, and the signaling payload is no larger than 16 KB. The server relays the payload only to that recipient and never relays audio. Audio uses browser WebRTC peer connections with a public STUN server; no TURN relay or paid media provider is configured.
+
+Microphone access is user-initiated. A participant can mute only their own microphone. The UI has no control for muting another participant. Voice connections are closed when leaving the room or when the room's voice feature is disabled.

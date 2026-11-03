@@ -34,7 +34,7 @@ function cleanName(value) {
 }
 function safeRoom(room) {
   return {
-    invite: room.invite, status: room.status, host: room.host, createdAt: room.createdAt,
+    invite: room.invite, status: room.status, host: room.host, createdAt: room.createdAt, voiceEnabled: !!room.voiceEnabled,
     players: room.players.map((p) => ({
       id: p.id, name: p.name, color: p.color, ready: p.ready,
       connected: p.connected, host: p.id === room.host
@@ -118,12 +118,12 @@ export class RoomHub {
     player.connected = true;
     player.disconnectedAt = null;
   }
-  async createRoom(peer, name) {
+  async createRoom(peer, name, voiceEnabled = false) {
     const invite = inviteCode(8);
     const playerToken = randomToken(24);
     const id = crypto.randomUUID();
     const room = {
-      id, invite, host: id, status: "lobby", createdAt: Date.now(), updatedAt: Date.now(),
+      id, invite, host: id, status: "lobby", voiceEnabled: !!voiceEnabled, createdAt: Date.now(), updatedAt: Date.now(),
       players: [{ id, token: playerToken, name: cleanName(name), color: "red", ready: true, connected: true, disconnectedAt: null }],
       state: null, sequence: 0
     };
@@ -173,11 +173,21 @@ export class RoomHub {
       this.eventRates.set(ws, rate);
       if (rate.count > 50) throw new Error("Too many actions. Please slow down.");
       if (!msg || typeof msg.type !== "string") throw new Error("Invalid message");
-      if (msg.type === "room.create") return await this.createRoom(peer, msg.name);
+      if (msg.type === "room.create") return await this.createRoom(peer, msg.name, msg.voiceEnabled === true);
       if (msg.type === "room.join") return await this.joinRoom(peer, msg.invite, msg.playerToken, msg.name);
 
       const { room, player } = this.roomContext(ws);
-      if (msg.type === "lobby.ready") {
+      if (msg.type === "voice.signal") {
+        if (!room.voiceEnabled) throw new Error("Voice chat is disabled for this room");
+        if (!["offer", "answer", "candidate"].includes(msg.data?.type)) throw new Error("Invalid voice signal");
+        if (typeof msg.targetId !== "string" || msg.targetId === player.id) throw new Error("Invalid voice recipient");
+        if (JSON.stringify(msg.data).length > 16000) throw new Error("Voice signal is too large");
+        const target = room.players.find((p) => p.id === msg.targetId);
+        if (!target) throw new Error("Voice recipient is not in this room");
+        const targetSocket = this.socketForPlayer(room, target.id);
+        if (targetSocket) peerFor(targetSocket).send({ type: "voice.signal", fromId: player.id, data: msg.data });
+        return;
+      } else if (msg.type === "lobby.ready") {
         if (room.status !== "lobby") throw new Error("Lobby is closed");
         player.ready = !!msg.ready;
         room.sequence++;

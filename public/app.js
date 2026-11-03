@@ -336,6 +336,8 @@ function askName(options = {}) {
   $('name-heading').textContent = options.heading || 'What should we call you?';
   $('name-note').textContent = options.note || 'This is the name the other players will see.';
   $('name-confirm').textContent = options.confirm || 'Continue';
+  $('create-voice-option').hidden = !options.showVoiceToggle;
+  $('create-voice-setting').checked = options.voiceEnabled === true;
   input.value = options.value !== undefined ? options.value : playerName();
   setDialogError('name-error', '');
   $('name-count').textContent = String(input.value.length);
@@ -549,6 +551,25 @@ function send(type, data = {}) {
   return false;
 }
 
+function updateVoiceUI(info = {}) {
+  const enabled = !!state.room?.voiceEnabled && !state.local;
+  ['lobby-voice-panel', 'game-voice-panel'].forEach((id) => { const panel = $(id); if (panel) panel.hidden = !enabled; });
+  const status = info.error || (info.busy ? 'Requesting microphone access…' : info.micOn ? 'Your microphone is on. You can hear the table.' : info.joined ? 'Connected to room audio. Your microphone is off.' : 'Enable your microphone to join the conversation.');
+  ['lobby-voice-status', 'game-voice-status'].forEach((id) => { const node = $(id); if (node) node.textContent = status; });
+  const label = info.busy ? 'Connecting…' : info.micOn ? 'Mute my mic' : info.joined ? 'Turn my mic on' : 'Enable microphone';
+  ['lobby-voice-toggle', 'game-voice-toggle'].forEach((id) => { const button = $(id); if (button) { button.textContent = label; button.disabled = !!info.busy || !enabled; button.setAttribute('aria-pressed', String(!!info.micOn)); } });
+  document.querySelectorAll('[data-player-id]').forEach((node) => node.classList.toggle('is-speaking', !!voiceClient?.isSpeaking(node.dataset.playerId)));
+}
+
+const voiceClient = window.ParcheesiVoice.create({ send, onChange: updateVoiceUI });
+function syncVoiceRoom() {
+  const room = state.room;
+  const self = room?.players.find((p) => p.color === state.color);
+  if (!room || !room.voiceEnabled || state.local || room.status === 'finished') voiceClient.sync(null, null);
+  else voiceClient.sync(room, self?.id || null);
+  updateVoiceUI(voiceClient.getState());
+}
+
 function rememberRoom(invite) {
   writeJSON('parcheesi.lastRoom', { invite, at: Date.now() });
   $('resume-room').hidden = false;
@@ -570,6 +591,7 @@ function message(m) {
     state.color = m.playerColor;
     state.local = false;
     state.gameMode = 'friends';
+    syncVoiceRoom();
     try { localStorage.setItem('parcheesi:' + m.invite, m.playerToken); } catch {}
     state.inviteUrl = location.origin + '/room/' + m.invite;
     rememberRoom(m.invite);
@@ -593,6 +615,7 @@ function message(m) {
   if (m.type === 'room.snapshot') {
     if (!state.room) return;
     state.room = m.room;
+    syncVoiceRoom();
     if (m.room.status === 'playing' || m.room.status === 'finished') {
       state.game = m.room.state;
       state.local = false;
@@ -609,6 +632,7 @@ function message(m) {
   if (m.type === 'game.started' || m.type === 'game.update') {
     state.room = m.room;
     state.game = m.room.state;
+    syncVoiceRoom();
     if (m.event && m.event.type === 'roll') { landDice(m.event.roll); }
     if (m.type === 'game.started') { state.resultRecorded = false; state.finishedSeen = []; }
     renderGame();
@@ -635,6 +659,7 @@ function message(m) {
 
   if (m.type === 'room.closed') { resetRoom(); view('home-view'); toast('The table was closed', 'error'); return; }
   if (m.type === 'room.kicked') { resetRoom(); view('home-view'); toast('You were removed from the table', 'error'); return; }
+  if (m.type === 'voice.signal') { voiceClient.handleSignal(m); return; }
   if (m.type === 'chat.message') {
     addChat(m.text, m.player, m.color, m.player === playerName());
   }
@@ -642,6 +667,8 @@ function message(m) {
 
 function resetRoom() {
   state.room = null;
+  voiceClient.sync(null, null);
+  updateVoiceUI(voiceClient.getState());
   state.game = null;
   state.token = null;
   state.color = null;
@@ -706,8 +733,9 @@ function renderLobby() {
   for (let i = 0; i < 4; i++) {
     const player = room.players[i];
     const seat = document.createElement('div');
-    seat.className = 'player-seat' + (!player ? ' seat-empty' : '');
+    seat.className = 'player-seat' + (!player ? ' seat-empty' : (voiceClient.isSpeaking(player.id) ? ' is-speaking' : ''));
     if (player) {
+      seat.dataset.playerId = player.id;
       const kick = isHost && !player.host
         ? `<button class="seat-kick" data-kick="${esc(player.id)}" aria-label="Remove ${esc(player.name)}" title="Remove">×</button>`
         : '';
@@ -715,6 +743,7 @@ function renderLobby() {
         '<span class="seat-dot color-' + player.color + '"></span>' +
         '<div class="seat-info"><b>' + esc(player.name) + (player.host ? ' · HOST' : '') + '</b>' +
         '<small>' + (player.connected ? 'CONNECTED' : 'RECONNECTING') + ' · ' + player.color.toUpperCase() + '</small></div>' +
+        '<span class="voice-bars" aria-hidden="true"><i></i><i></i><i></i></span>' +
         '<span class="seat-ready">' + (player.ready ? 'READY' : 'NOT READY') + '</span>' + kick;
     } else {
       seat.innerHTML = '<span class="seat-dot color-muted"></span><div class="seat-info"><b>Open seat</b><small>INVITE A FRIEND</small></div>';
@@ -913,10 +942,11 @@ function renderGame() {
     const active = entry.id === player.id && !over;
     const you = !state.local && entry.id === state.color;
     const done = E.hasFinished(game, entry.id);
-    return '<div class="game-player' + (active ? ' active' : '') + (done ? ' finished' : '') + '">' +
+    return '<div class="game-player' + (active ? ' active' : '') + (done ? ' finished' : '') + (voiceClient.isSpeaking(entry.id) ? ' is-speaking' : '') + '" data-player-id="' + esc(entry.id) + '">' +
       '<span class="seat-dot color-' + entry.id + '"></span>' +
       '<div><b>' + esc(entry.name) + (you ? ' · YOU' : '') + (done ? ' · HOME' : '') + '</b>' +
       '<small>' + home + '/4 HOME · ' + entry.captures + ' CAPTURES</small></div>' +
+      '<span class="voice-bars" aria-hidden="true"><i></i><i></i><i></i></span>' +
       (active ? '<span class="turn-flag">TURN</span>' : '') + '</div>';
   }).join('');
 
@@ -1093,14 +1123,16 @@ function cues(game) {
 /* --------------------------------------------------------------- actions -- */
 
 async function createRoom() {
-  const name = await askName({ heading: 'What should we call you?', note: 'Pick a name before you open the table.' });
+  const name = await askName({ heading: 'What should we call you?', note: 'Pick a name before you open the table.', showVoiceToggle: true });
   if (!name) return;
+  const voiceEnabled = $('create-voice-setting').checked;
+  $('create-voice-option').hidden = true;
   setPlayerName(name);
   const button = $('create-room');
   button.classList.add('is-busy');
   try {
     await connect();
-    send('room.create', { name });
+    send('room.create', { name, voiceEnabled });
   } catch (error) {
     toast(error.message || 'Could not reach the game server', 'error');
   } finally {
@@ -1343,6 +1375,8 @@ $('play-again').onclick = async () => {
   send('game.rematch');
 };
 $('chat-send').onclick = chat;
+$('lobby-voice-toggle').onclick = () => voiceClient.toggle();
+$('game-voice-toggle').onclick = () => voiceClient.toggle();
 $('chat-input').onkeydown = (event) => { if (event.key === 'Enter') chat(); };
 $('chat-input').onfocus = clearChatUnread;
 $('settings-open').onclick = openSettings;

@@ -171,3 +171,37 @@ test('leaving a table releases the seat for everyone else', async (t) => {
   assert.equal(trimmed.room.players.length, 1);
   assert.equal(trimmed.room.players[0].name, 'Host');
 });
+
+
+test('room voice is opt-in and signaling is relayed only to the addressed room member', async (t) => {
+  const port = 3190;
+  await startServer(t, port);
+  const host = await openClient(t, port);
+  const guest = await openClient(t, port);
+  host.send({ type: 'room.create', name: 'Host', voiceEnabled: true });
+  const created = await host.wait((m) => m.type === 'room.created');
+  assert.equal(created.room.voiceEnabled, true);
+  guest.send({ type: 'room.join', invite: created.invite, name: 'Guest' });
+  const joined = await guest.wait((m) => m.type === 'room.joined');
+  assert.equal(joined.room.voiceEnabled, true);
+  const data = { type: 'offer', sdp: 'test-session-description' };
+  host.send({ type: 'voice.signal', targetId: joined.room.players[1].id, data });
+  const relayed = await guest.wait((m) => m.type === 'voice.signal');
+  assert.equal(relayed.fromId, created.room.players[0].id);
+  assert.deepEqual(relayed.data, data);
+});
+
+test('rooms without voice reject signaling and keep the room feature disabled', async (t) => {
+  const port = 3191;
+  await startServer(t, port);
+  const host = await openClient(t, port);
+  const guest = await openClient(t, port);
+  host.send({ type: 'room.create', name: 'Host', voiceEnabled: false });
+  const created = await host.wait((m) => m.type === 'room.created');
+  guest.send({ type: 'room.join', invite: created.invite, name: 'Guest' });
+  const joined = await guest.wait((m) => m.type === 'room.joined');
+  assert.equal(joined.room.voiceEnabled, false);
+  host.send({ type: 'voice.signal', targetId: joined.room.players[1].id, data: { type: 'offer', sdp: 'not-allowed' } });
+  const rejected = await host.wait((m) => m.type === 'room.error');
+  assert.match(rejected.error, /voice chat is disabled/i);
+});
