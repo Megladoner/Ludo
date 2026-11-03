@@ -2,11 +2,12 @@
 
 /* ==========================================================================
    PARCHEESI — client
-   Sections: state · utils · preferences · audio · dialogs · network
-             rendering · actions · wiring
+   Sections: state · utils · preferences · audio · profile · dialogs
+             network · board · rendering · actions · wiring
    ========================================================================== */
 
 const E = window.LudoEngine;
+const P = window.ParcheesiProfile;
 const $ = (id) => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 const DICE_FACES = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
@@ -18,10 +19,11 @@ const VIEWS = ['home-view','lobby-view','game-view','result-view'];
 
 const state = {
   socket: null, room: null, token: null, color: null, game: null,
-  local: false, ai: false, aiDifficulty: 'normal', mode: '',
+  local: false, ai: false, aiDifficulty: 'normal', mode: '', gameMode: 'local',
   activity: [], inviteUrl: '', seenLen: null, diceAnim: null,
   pendingJoin: null, reconnectTimer: null, reconnectAttempts: 0,
   intentionalClose: false, chatUnread: 0, sequence: -1,
+  resultRecorded: false, autoMoveTimer: null, moveLock: 0, finishedSeen: [],
 };
 
 /* ---------------------------------------------------------------- utils -- */
@@ -37,7 +39,10 @@ function readJSON(key, fallback) {
   try { const parsed = JSON.parse(localStorage.getItem(key) || 'null'); return parsed ?? fallback; }
   catch { return fallback; }
 }
-function writeJSON(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} }
+function writeJSON(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; }
+}
+function legacyName() { try { return localStorage.getItem('parcheesi.name') || ''; } catch { return ''; } }
 
 function view(id) {
   VIEWS.forEach((v) => $(v).classList.toggle('hidden', v !== id));
@@ -56,11 +61,23 @@ function toast(message, kind = 'info') {
   toastTimer = setTimeout(() => node.classList.remove('show'), 3200);
 }
 
-function playerName() { return readJSON('parcheesi.name', '') || 'Player'; }
-function setPlayerName(name) { writeJSON('parcheesi.name', name); syncAvatar(); }
+function playerName() {
+  const stored = P.get().name;
+  if (stored) return stored;
+  return legacyName() || 'Player';
+}
+function setPlayerName(name) {
+  P.setName(name);
+  try { localStorage.setItem('parcheesi.name', name); } catch {}
+  syncAvatar();
+}
 function syncAvatar() {
   const name = playerName();
   $('avatar-initial').textContent = (name[0] || 'P').toUpperCase();
+  const photo = P.getPhoto();
+  const image = $('avatar-photo');
+  if (photo) { image.src = photo; image.hidden = false; $('avatar-initial').hidden = true; }
+  else { image.hidden = true; $('avatar-initial').hidden = false; }
 }
 
 /* ---------------------------------------------------------- preferences -- */
@@ -127,12 +144,178 @@ function tone(freq, duration, type, volume, delay) {
 }
 const sfx = {
   roll() { [0, 0.07, 0.14, 0.21].forEach((t, i) => tone(180 + i * 55, 0.06, 'square', 0.035, t)); },
+  enter() { tone(440, 0.08, 'triangle', 0.06); tone(660, 0.1, 'triangle', 0.05, 0.07); },
   move() { tone(520, 0.1, 'triangle', 0.09); },
   capture() { tone(330, 0.12, 'sawtooth', 0.06); tone(165, 0.25, 'sawtooth', 0.06, 0.1); },
   pen() { tone(200, 0.25, 'sine', 0.08); },
+  bonus() { [660, 880, 1170].forEach((f, i) => tone(f, 0.14, 'triangle', 0.07, i * 0.07)); },
   win() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.2, 'triangle', 0.08, i * 0.14)); },
-  enter() { tone(660, 0.09, 'sine', 0.06); tone(880, 0.12, 'sine', 0.05, 0.06); },
+  finish() { [784, 988, 1175, 1568].forEach((f, i) => tone(f, 0.22, 'sine', 0.07, i * 0.09)); },
 };
+
+/* -------------------------------------------------------------- confetti -- */
+
+const confetti = {
+  canvas: null, ctx: null, particles: [], frame: null,
+  init() {
+    this.canvas = $('confetti');
+    if (!this.canvas) return;
+    this.ctx = this.canvas.getContext('2d');
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
+  },
+  resize() {
+    if (!this.canvas) return;
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    this.canvas.width = Math.floor(window.innerWidth * ratio);
+    this.canvas.height = Math.floor(window.innerHeight * ratio);
+    this.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  },
+  colors() {
+    const root = getComputedStyle(document.documentElement);
+    return ['--red', '--green', '--yellow', '--blue', '--accent']
+      .map((name) => root.getPropertyValue(name).trim())
+      .filter(Boolean);
+  },
+  burst(count, origin) {
+    if (!this.ctx) return;
+    const colors = this.colors();
+    const scale = prefs.motion ? 0.25 : 1;
+    const total = Math.round(count * scale);
+    for (let i = 0; i < total; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 3 + Math.random() * 9;
+      this.particles.push({
+        x: origin.x + (Math.random() - 0.5) * 40,
+        y: origin.y + (Math.random() - 0.5) * 24,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 5,
+        size: 4 + Math.random() * 7,
+        color: colors[Math.floor(Math.random() * colors.length)] || '#e5dbc7',
+        rotation: Math.random() * Math.PI,
+        spin: (Math.random() - 0.5) * 0.34,
+        life: 1,
+        decay: 0.006 + Math.random() * 0.008,
+        square: Math.random() > 0.45,
+      });
+    }
+    if (!this.frame) this.frame = requestAnimationFrame(() => this.tick());
+  },
+  tick() {
+    if (!this.ctx) return;
+    this.ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    for (const particle of this.particles) {
+      particle.vy += 0.34;
+      particle.vx *= 0.99;
+      particle.x += particle.vx;
+      particle.y += particle.vy;
+      particle.rotation += particle.spin;
+      particle.life -= particle.decay;
+      if (particle.life <= 0) continue;
+      this.ctx.save();
+      this.ctx.globalAlpha = Math.max(0, Math.min(1, particle.life));
+      this.ctx.translate(particle.x, particle.y);
+      this.ctx.rotate(particle.rotation);
+      this.ctx.fillStyle = particle.color;
+      if (particle.square) this.ctx.fillRect(-particle.size / 2, -particle.size / 2, particle.size, particle.size * 0.62);
+      else { this.ctx.beginPath(); this.ctx.ellipse(0, 0, particle.size / 2, particle.size / 3, 0, 0, Math.PI * 2); this.ctx.fill(); }
+      this.ctx.restore();
+    }
+    this.particles = this.particles.filter((particle) => particle.life > 0);
+    if (this.particles.length) this.frame = requestAnimationFrame(() => this.tick());
+    else { this.frame = null; this.ctx.clearRect(0, 0, window.innerWidth, window.innerHeight); }
+  },
+  celebrate(kind) {
+    if (!this.ctx) return;
+    const center = { x: window.innerWidth / 2, y: window.innerHeight * 0.42 };
+    if (kind === 'win') {
+      this.burst(150, center);
+      this.burst(60, { x: center.x - window.innerWidth * 0.28, y: center.y });
+      this.burst(60, { x: center.x + window.innerWidth * 0.28, y: center.y });
+    } else {
+      this.burst(70, center);
+    }
+  },
+};
+
+/* -------------------------------------------------------------- profile -- */
+
+function profileStats() { return P.get().stats; }
+
+function paintProfileAvatar(photo, name) {
+  const holder = $('profile-avatar');
+  const initials = $('profile-initials');
+  holder.querySelectorAll('img').forEach((node) => node.remove());
+  initials.hidden = false;
+  initials.textContent = (String(name || 'P')[0] || 'P').toUpperCase();
+  if (photo) {
+    const image = document.createElement('img');
+    image.src = photo;
+    image.alt = '';
+    holder.appendChild(image);
+    initials.hidden = true;
+  }
+}
+
+function renderProfileStats() {
+  const stats = profileStats();
+  const cards = [
+    { label: 'MATCHES', value: stats.total.played, cls: '' },
+    { label: 'WON', value: stats.total.won, cls: 'is-won' },
+    { label: 'LOST', value: stats.total.lost, cls: 'is-lost' },
+  ];
+  const summary = $('profile-stats');
+  summary.innerHTML = cards.map((card) =>
+    '<div class="stat-card ' + card.cls + '"><b>' + card.value + '</b><span>' + card.label + '</span></div>'
+  ).join('') +
+    '<div class="rule-line"><span>AGAINST THE COMPUTER</span><b>' + stats.computer.played + ' played · ' + stats.computer.won + ' won</b></div>' +
+    '<div class="rule-line"><span>AGAINST FRIENDS</span><b>' + stats.friends.played + ' played · ' + stats.friends.won + ' won</b></div>';
+}
+
+function renderProfileHistory() {
+  const history = P.get().history;
+  const list = $('profile-history');
+  $('profile-history-count').textContent = history.length ? history.length + ' RECORDED' : 'NONE YET';
+  if (!history.length) {
+    list.innerHTML = '<p class="profile-history-empty">Play a table and it will show up here.</p>';
+    return;
+  }
+  list.innerHTML = history.map((entry) => {
+    const outcome = entry.outcome === 'won' ? 'WON' : entry.outcome === 'lost' ? 'LOST' : 'PLAYED';
+    const cls = entry.outcome === 'won' ? 'is-won' : entry.outcome === 'lost' ? 'is-lost' : 'is-draw';
+    const when = new Date(entry.at);
+    const date = Number.isNaN(when.getTime()) ? '' : when.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return '<div class="profile-match">' +
+      '<span class="profile-match-name">' + esc(entry.label || (entry.mode === 'computer' ? 'Against the computer' : 'Against friends')) + '</span>' +
+      '<small>' + esc(date) + '</small>' +
+      '<span class="profile-outcome ' + cls + '">' + outcome + '</span></div>';
+  }).join('');
+}
+
+function openProfile() {
+  const stored = P.get();
+  $('profile-name').value = stored.name || '';
+  const photo = P.getPhoto();
+  paintProfileAvatar(photo, stored.name || playerName());
+  $('profile-photo-remove').hidden = !photo;
+  renderProfileStats();
+  renderProfileHistory();
+  $('profile-dialog').showModal();
+}
+
+function saveProfile() {
+  const name = cleanName($('profile-name').value);
+  P.setName(name);
+  try { localStorage.setItem('parcheesi.name', name); } catch {}
+  syncAvatar();
+  renderProfileStats();
+  renderProfileHistory();
+  toast('Profile saved', 'success');
+}
+
+function recordMatch(mode, outcome, opponents, label) {
+  P.recordMatch({ mode, outcome, opponents, label });
+}
 
 /* ------------------------------------------------------------- dialogs -- */
 
@@ -188,7 +371,7 @@ function askSetup(mode) {
   const options = [...$('setup-counts').querySelectorAll('.seat-option')];
   const difficulties = [...$('setup-difficulty').querySelectorAll('button')];
 
-  let count = mode === 'ai' ? 4 : 4;
+  let count = 4;
   let difficulty = state.aiDifficulty || 'normal';
 
   $('setup-eyebrow').textContent = mode === 'ai' ? 'CHALLENGE THE TABLE' : 'PASS & PLAY';
@@ -295,7 +478,7 @@ function setNetwork(status) {
   const indicator = $('network-status');
   const label = $('network-label');
   const map = {
-    idle: ['READY TO PLAY', '', 'is-ready'],
+    idle: ['READY TO PLAY', 'CONNECTED', 'is-ready'],
     connecting: ['CONNECTING…', 'CONNECTING', 'is-reconnecting'],
     connected: ['CONNECTED', 'CONNECTED', 'is-online'],
     reconnecting: ['RECONNECTING…', 'RECONNECTING', 'is-reconnecting'],
@@ -378,12 +561,16 @@ function message(m) {
     if (m.sequence < state.sequence) return;
     state.sequence = m.sequence;
   }
+
   if (m.type === 'room.created' || m.type === 'room.joined') {
     state.room = m.room;
     state.seenLen = null;
     state.token = m.playerToken;
     state.color = m.playerColor;
     state.local = false;
+    state.gameMode = 'friends';
+    state.resultRecorded = false;
+    state.finishedSeen = [];
     try { localStorage.setItem('parcheesi:' + m.invite, m.playerToken); } catch {}
     state.inviteUrl = location.origin + '/room/' + m.invite;
     rememberRoom(m.invite);
@@ -412,14 +599,17 @@ function message(m) {
   if (m.type === 'game.started' || m.type === 'game.update') {
     state.room = m.room;
     state.game = m.room.state;
-    if (m.event && m.event.type === 'roll') landDice(m.event.roll);
+    if (m.event && m.event.type === 'roll') { landDice(m.event.roll); }
+    if (m.type === 'game.started') { state.resultRecorded = false; state.finishedSeen = []; }
     renderGame();
     if (state.game.status === 'finished') result();
     else if (m.type === 'game.started') view('game-view');
+    else maybeAutoMove();
     return;
   }
 
   if (m.type === 'room.error') {
+    stopDice();
     if (state.pendingJoin) { showJoinError(m.error || 'That invitation did not work'); return; }
     toast(m.error || 'Something went wrong', 'error');
     return;
@@ -438,10 +628,12 @@ function resetRoom() {
   state.seenLen = null;
   state.local = false;
   state.sequence = -1;
+  state.resultRecorded = false;
+  clearTimeout(state.autoMoveTimer);
   layoutCache.clear();
 }
 
-/* -------------------------------------------------------------- dialogs flow -- */
+/* ------------------------------------------------------------ dialogs flow -- */
 
 function openJoinDialog(code) {
   const dialog = $('join-dialog');
@@ -512,6 +704,7 @@ function renderLobby() {
 function computeLayout(game, interactive) {
   const turn = game.players[game.currentPlayer];
   const legal = interactive && game.awaitingMove ? E.legalMoves(game) : [];
+  const bonus = game.bonusToken;
   const items = [];
   game.players.forEach((player) => player.tokens.forEach((progress, index) => {
     let x, y, r = 0.36, done = false;
@@ -524,7 +717,11 @@ function computeLayout(game, interactive) {
     } else {
       [x, y] = E.TRACK_COORDS[E.globalTrackIndex(player.id, progress)];
     }
-    items.push({ player, index, x, y, r, share: progress >= 0 && !done, can: player.id === turn?.id && legal.includes(index) });
+    items.push({
+      player, index, x, y, r, share: progress >= 0 && !done,
+      can: player.id === turn?.id && legal.includes(index),
+      bonus: !!bonus && bonus.player === player.id && bonus.token === index,
+    });
   }));
   const groups = {};
   items.forEach((item) => { if (item.share) (groups[item.x + ',' + item.y] = groups[item.x + ',' + item.y] || []).push(item); });
@@ -574,6 +771,14 @@ function board(target, game, interactive) {
     el('polygon', { points, class: 'b-tri c-' + color });
   });
 
+  // The home square of whoever is on turn wears a bold frame.
+  const onTurn = game.status === 'playing' ? game.players[game.currentPlayer] : null;
+  if (onTurn) {
+    const [ax, ay] = YARD[onTurn.id];
+    el('rect', { x: ax - 0.1, y: ay - 0.1, width: 6.2, height: 6.2, rx: 0.7, class: 'b-yard-frame' });
+    el('rect', { x: ax - 0.02, y: ay - 0.02, width: 6.04, height: 6.04, rx: 0.64, class: 'b-yard-frame-inner c-' + onTurn.id + ' b-yard-frame-pulse' });
+  }
+
   const items = computeLayout(game, interactive);
   const nextLayout = new Map();
   items.sort((a, b) => a.can - b.can).forEach((item) => {
@@ -584,12 +789,15 @@ function board(target, game, interactive) {
       group.appendChild(make('circle', { cx: 0, cy: 0, r: item.r + 0.13, class: 'b-ring b-ring-dark' }));
       group.appendChild(make('circle', { cx: 0, cy: 0, r: item.r + 0.13, class: 'b-ring' }));
     }
+    if (item.bonus) {
+      group.appendChild(make('circle', { cx: 0, cy: 0, r: item.r + 0.22, class: 'b-ring b-bonus' }));
+    }
     group.appendChild(make('circle', { cx: 0, cy: 0, r: item.r, class: 'token c-' + item.player.id }));
     group.appendChild(make('circle', { cx: -item.r * 0.28, cy: -item.r * 0.3, r: item.r * 0.38, class: 'token-shine' }));
     if (item.can) {
       group.appendChild(make('circle', {
         cx: 0, cy: 0, r: 0.62, class: 'hit', 'data-token': item.index, tabindex: 0, role: 'button',
-        'aria-label': item.player.name + ' token ' + (item.index + 1),
+        'aria-label': item.player.name + ' token ' + (item.index + 1) + (item.bonus ? ', bonus move' : ''),
       }));
     }
     const previous = layoutCache.get(key);
@@ -629,10 +837,11 @@ function describeHistory(entry, game) {
   switch (entry.type) {
     case 'roll': return `${name} rolled a ${entry.roll}.`;
     case 'move': {
-      const base = `${name} moved token ${entry.token + 1}.`;
-      if (entry.captured && entry.captured.length) return `${name} moved token ${entry.token + 1} and sent ${entry.captured.length} token(s) home.`;
+      if (entry.captured && entry.captured.length) return `${name} moved token ${entry.token + 1} and sent ${entry.captured.length} token home — another roll.`;
+      if (entry.enteredHome) return `${name} brought token ${entry.token + 1} into the home lane — another roll.`;
       if (entry.finished) return `${name} brought token ${entry.token + 1} all the way home.`;
-      return base;
+      if (entry.completedPlayer) return `${name} brought every token home.`;
+      return `${name} moved token ${entry.token + 1}.`;
     }
     case 'three-sixes-penalty': return `${name} rolled three sixes and lost the turn.`;
     case 'no-move': return `${name} rolled a ${entry.roll} but had no legal move.`;
@@ -646,33 +855,52 @@ function renderGame() {
   const player = game.players[game.currentPlayer];
   if (!player) return;
 
+  const over = game.status === 'finished';
+  const champion = over ? game.players.find((p) => p.id === game.winner) : null;
+
   $('game-mode-label').textContent = state.mode || 'PRIVATE ROOM';
   $('game-title').textContent = state.local ? 'The table is yours.' : 'Room ' + (state.room?.invite || '');
   $('connection-pill').style.display = state.local ? 'none' : 'flex';
-  $('turn-text').textContent = (game.status === 'finished' ? (game.players.find((p) => p.id === game.winner)?.name || '').toUpperCase() + ' WINS' : player.name.toUpperCase() + ' TO PLAY');
-  $('turn-detail').textContent = game.status === 'finished' ? 'The game is complete' : game.awaitingMove ? 'Choose a token' : 'Roll the dice';
-  $('turn-banner').querySelector('.turn-dot').className = 'turn-dot color-' + (game.status === 'finished' ? game.winner : player.id);
+  $('turn-text').textContent = over
+    ? (champion ? champion.name.toUpperCase() + ' WINS' : 'GAME OVER')
+    : player.name.toUpperCase() + ' TO PLAY';
+  $('turn-detail').textContent = over ? 'The game is complete' : game.awaitingMove ? 'Choose a token' : 'Roll the dice';
+  $('turn-banner').querySelector('.turn-dot').className = 'turn-dot color-' + (over ? (game.winner || player.id) : player.id);
+  $('turn-banner').classList.toggle('is-waiting', !over && !state.local && player.id !== state.color);
+
+  // The die travels to the home square of whoever is on turn.
+  const seatFor = over ? (game.winner || player.id) : player.id;
+  const overlay = $('dice-overlay');
+  if (overlay.dataset.seat !== seatFor) overlay.dataset.seat = seatFor;
 
   if (!state.diceAnim) $('dice-face').textContent = game.dice ? DICE_FACES[game.dice] : '⚄';
+  $('dice-caption').textContent = over ? 'DONE' : game.awaitingMove ? 'PICK' : 'ROLL';
   $('dice-title').textContent = game.awaitingMove ? 'Choose your token' : 'Roll the dice';
   $('dice-subtitle').textContent = game.awaitingMove ? game.dice + ' spaces to move' : 'A six brings a token out';
 
   const mine = state.local ? player.kind === 'human' : player.id === state.color;
-  $('roll-dice').disabled = !mine || game.awaitingMove || game.status !== 'playing';
-  $('move-hint').textContent = game.status === 'finished' ? 'Nicely played.' : game.awaitingMove ? 'Select a highlighted token.' : mine ? 'Your turn. Give it a roll.' : player.name + ' is thinking…';
+  $('roll-dice').disabled = !mine || game.awaitingMove || over;
+  $('move-hint').textContent = over
+    ? 'Nicely played.'
+    : game.awaitingMove
+      ? 'Select a highlighted token.'
+      : mine ? 'Your turn. Give it a roll.' : player.name + ' is thinking…';
 
   $('game-players').innerHTML = game.players.map((entry) => {
     const home = entry.tokens.filter((t) => t === E.FINISH_PROGRESS).length;
-    const active = entry.id === player.id && game.status !== 'finished';
+    const active = entry.id === player.id && !over;
     const you = !state.local && entry.id === state.color;
-    return '<div class="game-player' + (active ? ' active' : '') + '">' +
+    const done = E.hasFinished(game, entry.id);
+    return '<div class="game-player' + (active ? ' active' : '') + (done ? ' finished' : '') + '">' +
       '<span class="seat-dot color-' + entry.id + '"></span>' +
-      '<div><b>' + esc(entry.name) + (you ? ' · YOU' : '') + '</b>' +
-      '<small>' + home + '/4 HOME · ' + entry.captures + ' CAPTURES</small></div></div>';
+      '<div><b>' + esc(entry.name) + (you ? ' · YOU' : '') + (done ? ' · HOME' : '') + '</b>' +
+      '<small>' + home + '/4 HOME · ' + entry.captures + ' CAPTURES</small></div>' +
+      (active ? '<span class="turn-flag">TURN</span>' : '') + '</div>';
   }).join('');
 
-  board($('game-board'), game, mine && game.status === 'playing');
+  board($('game-board'), game, mine && !over);
   cues(game);
+  noticeFinishes(game);
 
   const history = game.history.slice(-9).reverse();
   $('activity-list').innerHTML = history.length
@@ -680,18 +908,35 @@ function renderGame() {
     : '<p class="empty-activity">Every great game starts with a roll.</p>';
 }
 
+// Celebrate and announce every player who brings all four tokens home.
+function noticeFinishes(game) {
+  const finished = game.finishOrder || [];
+  for (const id of finished) {
+    if (state.finishedSeen.indexOf(id) !== -1) continue;
+    state.finishedSeen.push(id);
+    const player = game.players.find((p) => p.id === id);
+    const place = finished.indexOf(id) + 1;
+    confetti.celebrate('finish');
+    if (prefs.sound) sfx.finish();
+    toast((player ? player.name : id) + ' has brought every token home', 'success');
+    if (state.gameMode === 'friends' && !state.local) { /* the table carries on */ }
+    void place;
+  }
+}
+
 function result() {
   const game = state.game;
   if (!game) return;
   const standings = E.standings(game);
-  const winner = standings[0];
+  const champion = standings[0];
   const won = !state.local && game.winner === state.color;
 
   $('result-eyebrow').textContent = won ? 'YOU TOOK THE TABLE' : 'A GAME WELL PLAYED';
-  $('result-title').textContent = winner ? winner.name + ' wins.' : 'A draw.';
+  $('result-title').textContent = champion ? champion.name + ' wins.' : 'A draw.';
+  const playedOn = game.players.length > 2 && (game.finishOrder || []).length > 1;
   $('result-subtitle').textContent = won
-    ? 'A fine piece of play. The table is yours — for now.'
-    : 'The table has a champion. Shame about the runner-up.';
+    ? (playedOn ? 'A fine piece of play. The table played on, and you took it.' : 'A fine piece of play. The table is yours — for now.')
+    : (playedOn ? 'The table played on until everyone was home. Another time.' : 'The table has a champion. Shame about the runner-up.');
 
   const podium = $('result-podium');
   const top = standings.slice(0, 3);
@@ -711,6 +956,17 @@ function result() {
 
   $('play-again').textContent = state.local ? 'Deal again →' : 'Rematch →';
   view('result-view');
+
+  if (!state.resultRecorded) {
+    state.resultRecorded = true;
+    if (state.local) {
+      if (state.ai) recordMatch('computer', game.winner === 'red' ? 'won' : 'lost', game.players.length - 1, 'Against the computer');
+      else recordMatch('friends', null, game.players.length - 1, 'Pass & play');
+    } else {
+      recordMatch('friends', game.winner === state.color ? 'won' : 'lost', game.players.length - 1, 'Online table');
+    }
+    confetti.celebrate('win');
+  }
 }
 
 function addActivity(text, label, color) {
@@ -747,10 +1003,10 @@ function startDiceTumble() {
     if (!anim) return;
     if (anim.target != null) {
       anim.landed += 1;
-      if (anim.landed >= 3) { finishDice(anim.target); return; }
+      if (anim.landed >= 4) { finishDice(anim.target); return; }
     }
     $('dice-face').textContent = DICE_FACES[1 + Math.floor(Math.random() * 6)];
-  }, 70);
+  }, 62);
 }
 function landDice(value) {
   if (!state.diceAnim) { $('dice-face').textContent = DICE_FACES[value] || '⚄'; return; }
@@ -762,7 +1018,7 @@ function finishDice(value) {
   const button = $('roll-dice');
   button.classList.remove('rolling');
   button.classList.add('landed');
-  setTimeout(() => button.classList.remove('landed'), 340);
+  setTimeout(() => button.classList.remove('landed'), 420);
 }
 function stopDice() {
   if (state.diceAnim?.timer) clearInterval(state.diceAnim.timer);
@@ -780,7 +1036,7 @@ function cues(game) {
   state.seenLen = length;
   if (!prefs.sound) return;
   if (game.status === 'finished') sfx.win();
-  else if (entry.type === 'move') (entry.captured && entry.captured.length) ? sfx.capture() : sfx.move();
+  else if (entry.type === 'move') (entry.captured && entry.captured.length) ? sfx.capture() : (entry.enteredHome ? sfx.bonus() : sfx.move());
   else if (entry.type === 'roll') sfx.roll();
   else sfx.pen();
 }
@@ -837,17 +1093,38 @@ async function startLocalGame(mode) {
   });
   state.local = true;
   state.ai = mode === 'ai';
+  state.gameMode = mode === 'ai' ? 'computer' : 'friends';
   state.aiDifficulty = setup.difficulty;
   state.seenLen = null;
   state.mode = mode === 'ai' ? 'PLAY VS AI' : 'PASS & PLAY';
   state.room = null;
   state.color = 'red';
+  state.resultRecorded = false;
+  state.finishedSeen = [];
   layoutCache.clear();
   state.game = E.initialState({ players: ids, names, kinds, difficulties });
   state.activity = [];
   renderGame();
   view('game-view');
+  maybeAutoMove();
   maybeAI();
+}
+
+// A single token on the board moves itself.
+function maybeAutoMove() {
+  clearTimeout(state.autoMoveTimer);
+  const game = state.game;
+  if (!game || !game.awaitingMove || game.status !== 'playing') return;
+  const player = game.players[game.currentPlayer];
+  if (!player) return;
+  const mine = state.local ? player.kind === 'human' : player.id === state.color;
+  if (!mine) return;
+  const token = E.autoMoveToken(game);
+  if (token === null || token === undefined) return;
+  state.autoMoveTimer = setTimeout(() => {
+    if (!state.game || !state.game.awaitingMove) return;
+    move(token);
+  }, 420);
 }
 
 function move(index) {
@@ -857,10 +1134,12 @@ function move(index) {
       state.game = E.applyMove(state.game, index);
       renderGame();
       if (state.game.status === 'finished') result();
-      else maybeAI();
+      else { maybeAutoMove(); maybeAI(); }
     } catch (error) { toast(error.message || 'That move is not allowed', 'error'); }
     return;
   }
+  if (Date.now() - state.moveLock < 350) return;
+  state.moveLock = Date.now();
   send('game.move', { token: index });
 }
 
@@ -878,11 +1157,12 @@ function roll() {
     }
     landDice(value);
     renderGame();
+    maybeAutoMove();
     maybeAI();
     return;
   }
   startDiceTumble();
-  send('game.roll');
+  if (!send('game.roll')) stopDice();
 }
 
 let aiTimer;
@@ -904,7 +1184,7 @@ function maybeAI() {
     } catch { /* the table changed under us; the next tick will sort it out */ }
     renderGame();
     if (state.game.status === 'finished') result();
-    else maybeAI();
+    else { maybeAutoMove(); maybeAI(); }
   }, delay);
 }
 
@@ -919,6 +1199,7 @@ async function leaveGame() {
   if (!ok) return;
   state.intentionalClose = true;
   clearTimeout(aiTimer);
+  clearTimeout(state.autoMoveTimer);
   stopDice();
   if (!state.local) send('room.leave');
   try { state.socket?.close(); } catch {}
@@ -1021,12 +1302,7 @@ $('settings-dialog').addEventListener('change', () => { applyPrefs(readForm()); 
 $('settings-dialog').addEventListener('close', () => { applyPrefs(prefs); fillForm(prefs); });
 $('how-to-play').onclick = () => $('help-dialog').showModal();
 $('game-menu').onclick = () => { $('menu-dialog').showModal(); };
-$('avatar-button').onclick = async () => {
-  const name = await askName({ eyebrow: 'YOUR PROFILE', heading: 'What should we call you?', note: 'This name is used for local tables and remembered on this device.', confirm: 'Save', value: playerName() });
-  if (!name) return;
-  setPlayerName(name);
-  if (state.room) send('lobby.rename', { name });
-};
+$('avatar-button').onclick = openProfile;
 $('name-random').onclick = () => {
   const names = E.AI_NAMES;
   const pick = names[Math.floor(Math.random() * names.length)];
@@ -1035,6 +1311,41 @@ $('name-random').onclick = () => {
   setDialogError('name-error', '');
 };
 $('name-input').oninput = (event) => { $('name-count').textContent = String(event.target.value.length); };
+$('profile-save').onclick = () => { saveProfile(); $('profile-dialog').close(); };
+$('profile-reset').onclick = async () => {
+  const ok = await confirmAction({
+    eyebrow: 'START FRESH',
+    heading: 'Reset your profile?',
+    body: 'Your name, photo and match history will be cleared from this browser.',
+    confirm: 'Reset',
+    danger: true,
+  });
+  if (!ok) return;
+  P.reset();
+  syncAvatar();
+  $('profile-dialog').close();
+  toast('Profile reset');
+};
+$('profile-photo-btn').onclick = () => $('profile-photo-input').click();
+$('profile-photo-remove').onclick = () => {
+  P.setPhoto('');
+  paintProfileAvatar('', $('profile-name').value);
+  $('profile-photo-remove').hidden = true;
+};
+$('profile-photo-input').onchange = async (event) => {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  try {
+    const dataUrl = await P.readPhoto(file);
+    P.setPhoto(dataUrl);
+    paintProfileAvatar(dataUrl, $('profile-name').value);
+    $('profile-photo-remove').hidden = false;
+    toast('Photo added', 'success');
+  } catch (error) {
+    toast(error.message || 'Could not use that picture', 'error');
+  }
+  event.target.value = '';
+};
 document.querySelectorAll('[data-go-home]').forEach((button) => {
   button.onclick = async () => {
     if (state.room) { await leaveGame(); return; }
@@ -1077,6 +1388,11 @@ document.addEventListener('keydown', (event) => {
   }
   if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
   if (event.key.toLowerCase() === 'r' && !$('roll-dice').disabled) { event.preventDefault(); roll(); }
+  if (['1', '2', '3', '4'].includes(event.key) && state.game?.awaitingMove) {
+    const index = Number(event.key) - 1;
+    const hits = [...document.querySelectorAll('#game-board .hit')];
+    if (hits.some((node) => Number(node.dataset.token) === index)) { event.preventDefault(); move(index); }
+  }
 });
 
 // A local game lives only in this tab, so warn before it is lost. A room game
@@ -1103,6 +1419,7 @@ function init() {
   applyPrefs(prefs);
   fillForm(prefs);
   syncAvatar();
+  confetti.init();
   preview();
 
   const last = readJSON('parcheesi.lastRoom', null);

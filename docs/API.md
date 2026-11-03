@@ -6,9 +6,10 @@
 - `GET /` — application shell.
 - `GET /room/:invite` — application shell for a shareable invitation route.
 - `GET /engine.js` — shared browser rules engine.
+- `GET /profile.js` — the browser-local profile module.
 - `GET /manifest.webmanifest` and `GET /sw.js` — PWA metadata and service worker.
 
-The current API has no user accounts or public matchmaking endpoints.
+The current API has no user accounts, no public matchmaking endpoints, and no profile endpoints. The profile card is stored in the browser only; nothing about it reaches the server.
 
 ## WebSocket
 Connect to `ws(s)://<host>/ws`. Messages are UTF-8 JSON text frames. Client payloads are intents; the server does not accept client-supplied dice results or resulting game states.
@@ -46,3 +47,7 @@ Every server message carries a top-level `sequence` that increases with each sta
 The seat token is a bearer credential. Keep it private. Room snapshots deliberately omit seat tokens.
 
 Invitation codes are eight characters drawn from `ABCDEFGHJKMNPQRSTUVWXYZ23456789` — no look-alike characters, so a code can be dictated over a phone. Entry normalises case and ignores spaces, dashes and slashes. The code is separate from internal UUIDs.
+
+## Profile storage
+
+There is deliberately no profile API. The name, the statistics, the recent-match history and the photo live in the browser's `localStorage` under `parcheesi.profile` and `parcheesi.profile.photo`. Clearing site data removes them. They are never uploaded, never shared between browsers, and never visible to the server.

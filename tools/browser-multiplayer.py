@@ -96,17 +96,37 @@ with sync_playwright() as p:
         check("exactly one client can roll", host_can_roll != guest_can_roll,
               f"host={host_can_roll} guest={guest_can_roll}")
 
-    # Play on until a token can actually be moved
+    # The die and the turn frame belong to whoever is on turn, on every screen.
+    host_seat = host.get_attribute("#dice-overlay", "data-seat")
+    guest_seat = guest.get_attribute("#dice-overlay", "data-seat")
+    check("both clients show the die in the same home square", host_seat == guest_seat,
+          f"host={host_seat} guest={guest_seat}")
+    host_frame = host.get_attribute("#game-board .b-yard-frame-inner", "class") or ""
+    guest_frame = guest.get_attribute("#game-board .b-yard-frame-inner", "class") or ""
+    check("both clients frame the same home square",
+          ("c-" + str(host_seat)) in host_frame and ("c-" + str(guest_seat)) in guest_frame,
+          f"host={host_frame} guest={guest_frame}")
+
+    # Play on until a token can actually be moved. A lone token plays itself, so
+    # give an automatic move a moment to settle before reaching for the mouse.
     moved = False
     for _ in range(40):
         for pg in (host, guest):
-            if "highlighted" in pg.inner_text("#move-hint"):
-                hits = pg.locator("#game-board .hit")
-                if hits.count():
-                    hits.first.click()
-                    pg.wait_for_timeout(900)
-                    moved = True
-                    break
+            if "highlighted" not in pg.inner_text("#move-hint"):
+                continue
+            pg.wait_for_timeout(800)
+            if "highlighted" not in pg.inner_text("#move-hint"):
+                continue
+            hits = pg.locator("#game-board .hit")
+            if not hits.count():
+                continue
+            try:
+                hits.first.click(timeout=3000)
+                moved = True
+            except Exception:
+                pass
+            pg.wait_for_timeout(900)
+            break
         if moved:
             break
         for pg in (host, guest):

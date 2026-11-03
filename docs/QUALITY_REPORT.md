@@ -38,17 +38,41 @@ A full pass over the interface, the rules and the transport, driven by "nothing 
 
 **Verification.** 36 automated tests, stable across five consecutive runs. A 33-check browser suite and a 19-check two-browser multiplayer suite drive the real application against the real server over a real WebSocket — not an injected document.
 
+## Cycle 5 — The living table
+A pass over the feel of the game: where the die sits, where the eye goes, what happens when a rule bends, and what the game remembers afterwards.
+
+**The die has a seat.** The die used to sit in a fixed panel beside the board, so it never told you whose turn it was. It now lives in the free inner corner of the home square of the player on turn and slides across the board as the turns change hands — on every client's screen, not just your own.
+
+**The turn is drawn on the board.** The home square of whoever is on turn wears a bold two-tone frame that pulses gently and cycles with the turn. You can see whose turn it is without reading a single word.
+
+**The rules bent, on purpose.**
+- A capture now earns the capturer another roll, as it does on a real board.
+- Entering the home lane is worth an **extra move with that very token**, not merely another turn. The engine locks the legal move to that token until the bonus is spent, so it cannot be used to shuffle another token forward.
+- A player with exactly one token on the board and exactly one legal move now plays it automatically. Bring out a second token and the choice comes straight back.
+- With three or four players the table plays on after the first finisher, so everyone gets home and the result screen can show a full finishing order. Two-player games still end at the first finisher.
+
+**Bugs found and fixed while building it.**
+- `writeJSON` was lost in the client rewrite, so saving preferences threw and the settings sheet could never close. Caught by the browser suite, not by inspection.
+- `sfx.enter` was called but never defined, which threw when sound was switched on from the table menu.
+- The home-lane bonus originally granted another roll instead of another move, which did not match the rule as specified. The engine was corrected and the tests rewritten around the new semantics.
+- A failed multiplayer roll left the die tumbling forever.
+- The result screen and the confetti could fire twice on the same finished game; both are now behind a one-shot guard that is cleared when a rematch starts.
+
+**The profile card.** A local-only dashboard opened from the avatar: name, photo, matches played/won/lost, the split between the computer and friends, and a short history. It lives entirely in `localStorage` — two keys, no server, no account, no upload. Photos are redrawn to a 256×256 JPEG before they are stored.
+
+**Verification.** 52 unit tests, stable across repeated runs. A 33-check interface suite, a 40-check feature suite and a 21-check two-browser multiplayer suite drive the real application against the real server over a real WebSocket — 94 browser checks in total, all passing, with no uncaught page errors.
+
 ## Weighted score
 | Category | Score | Evidence / remaining gap |
 |---|---:|---|
 | Visual design and product experience | 18/20 | Cohesive visual system, original SVG board, real dialogs, motion, podium, responsive layout; no customization studio |
-| Rules and gameplay correctness | 17/20 | Deterministic engine, correct six handling, forfeits, standings; alternate rules and blockades remain |
+| Rules and gameplay correctness | 18/20 | Deterministic engine, correct six handling, capture bonus, home-lane bonus move, auto-play, long games with a finishing order, forfeits, standings; alternate rules and blockades remain |
 | Online multiplayer and invitations | 18/20 | Two real browsers, readable codes, lobby, ready/rename/remove, server dice and moves, reconnect with backoff, rematch; no public matchmaking or multi-instance persistence |
-| AI, local play, and features | 8/10 | Three difficulty tiers with distinct behaviour, named seats, pass-and-play; no deep search, profiles or statistics |
+| AI, local play, and features | 9/10 | Three difficulty tiers with distinct behaviour, named seats, pass-and-play, bonus turns, auto-play, confetti and a local profile card; no deep search and no cross-device profile |
 | Responsive design and mobile usability | 9/10 | Desktop, laptop, wide and 390px mobile verified in-browser; tablet and landscape untested |
 | Performance, reliability, and security | 8/10 | No-dependency server, secure randomness, strict CSP, validation, rate limits, auto-reconnect; single-process JSON storage and no production TLS/DB hardening |
-| Code quality, accessibility, and testing | 9/10 | Modular engine/server/client, live-region and focus handling, 36 unit tests plus 52 browser checks; screen-reader testing and load tests remain |
-| Total | 87/100 | 8.7/10 |
+| Code quality, accessibility, and testing | 9/10 | Modular engine/server/client, live-region and focus handling, 52 unit tests plus 94 browser checks; screen-reader testing and load tests remain |
+| Total | 88/100 | 8.8/10 |
 
 ## Final verdict
-Passes the requested threshold with room to spare as a polished, independently verified MVP. The private-room multiplayer flow is real and now provably works end to end in two separate browsers against a live server — which it did not before this pass. This should still not be described as a finished public gaming service until persistence at scale, operational security, public matchmaking, and account features are implemented.
+Passes the requested threshold with room to spare as a polished, independently verified MVP. The table now reads clearly at a glance — the die shows whose turn it is, the board frames the player on turn, and the rules reward a good capture or a well-timed home entry. The profile card gives the game a memory without giving up a byte of privacy. The private-room multiplayer flow is real and now provably works end to end in two separate browsers against a live server — which it did not before this pass. This should still not be described as a finished public gaming service until persistence at scale, operational security, public matchmaking, and account features are implemented.

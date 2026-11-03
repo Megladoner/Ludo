@@ -15,8 +15,8 @@ Every server message carries a top-level `sequence`. It increases on every state
 | `lobby.kick` | `playerId` | Host only. Removes another player from the table. |
 | `lobby.start` | — | Host only. Requires at least two players, everyone ready. |
 | `game.roll` | — | Only valid on the player's turn. The server rolls the dice. |
-| `game.move` | `token` | Token index 0–3. Server-validated. |
-| `game.rematch` | — | Only valid once the game has finished. Returns the table to the lobby with everyone unready. |
+| `game.move` | `token` | Token index 0–3. Server-validated. While a bonus move is pending, only the bonus token is accepted. |
+| `game.rematch` | — | Only valid once the game has finished. Returns the table to the lobby with everyone unready and clears the finishing order. |
 | `game.state` | — | Requests a fresh snapshot. |
 | `room.leave` | — | Releases the seat. The socket may be closed straight after. |
 | `room.close` | — | Host only. Closes the room for everybody. |
@@ -36,8 +36,25 @@ Every server message carries a top-level `sequence`. It increases on every state
 | `room.kicked` | — | The host removed you from the table. |
 | `room.closed` | — | The host closed the table. |
 
+## Game state
+
+The snapshot's `state` is the shared engine's state, version 2. Alongside the classic fields it carries:
+
+| Field | Notes |
+| --- | --- |
+| `finishOrder` | Players who have brought all four tokens home, in the order they did it. Empty until somebody finishes. |
+| `lastFinish` | The player who finished most recently. |
+| `bonusToken` | `{player, token}` when a token has entered its home lane and is owed one more move. `null` otherwise. |
+| `version` | The engine version (`2`). Clients ignore unknown fields, so old clients still parse new snapshots. |
+
+A three- or four-player game is not over when the first player finishes: `status` stays `playing` until every player has finished, and the finishing order is what ranks the table. A two-player game ends at the first finisher as before.
+
 ## Seats and tokens
 
 * **Invitation codes** are eight characters from `ABCDEFGHJKMNPQRSTUVWXYZ23456789` — no `I`, `L`, `O`, `0` or `1`, so a code can be read aloud without confusion. Entry is normalised: case, spaces, dashes and slashes are ignored.
 * **Seat tokens** are long random bearer credentials stored per browser under `parcheesi:<invite>`. They reclaim a seat after a reload or a dropped connection. Never share them.
 * A dropped socket keeps the seat for the grace period and marks the player as reconnecting. An explicit `room.leave` releases the seat immediately and forfeits any tokens that player still had on the board.
+
+## Local profile card
+
+The profile card never touches the network. It is written to `localStorage` in the browser under `parcheesi.profile` and `parcheesi.profile.photo`, and it is not represented in any protocol message. No server endpoint accepts or returns profile data.

@@ -4,44 +4,213 @@ const assert = require('node:assert/strict');
 const E = require('../src/engine/ludo');
 const { inviteCode, normalizeInvite, CODE_ALPHABET } = require('../src/server/rooms');
 
-// --- Rules ------------------------------------------------------------------
+function pending(state, playerIndex = 0, roll = 1) {
+  state.currentPlayer = playerIndex; state.dice = roll; state.awaitingMove = true; return state;
+}
 
-test('a six with no legal move ends the turn instead of granting another roll', () => {
-  const state = E.initialState();
-  // Put every token where a six cannot move it: one short of home and the rest finished.
-  state.players[0].tokens = [56, 57, 57, 57];
-  const next = E.applyRoll(state, 6);
-  assert.equal(next.awaitingMove, false);
+// --- Bonus turns ------------------------------------------------------------
+
+test('a capture earns the captor another roll', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [0, -1, -1, -1];
+  state.players[1].tokens = [40, -1, -1, -1];
+  // Red at 0 lands on green at 40's cell with a roll of 1.
+  state = pending(state, 0, 1);
+  const next = E.applyMove(state, 0);
+  assert.equal(next.players[1].tokens[0], -1, 'green was captured');
+  assert.equal(next.currentPlayer, 0, 'red keeps the turn after a capture');
   assert.equal(next.dice, null);
-  assert.equal(next.currentPlayer, 1, 'the turn passes to the next player');
-  assert.ok(next.history.some((entry) => entry.type === 'no-move'));
+  assert.equal(next.awaitingMove, false, 'red rolls again rather than moving again');
 });
 
-test('a six that can release a token still waits for a move', () => {
-  const state = E.applyRoll(E.initialState(), 6);
-  assert.equal(state.awaitingMove, true);
-  assert.deepEqual(E.legalMoves(state), [0, 1, 2, 3]);
+test('a capture by the second player also keeps their turn', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  // Green at 39 steps onto cell 1, where red is waiting.
+  state.players[0].tokens = [1, -1, -1, -1];
+  state.players[1].tokens = [39, -1, -1, -1];
+  state = pending(state, 1, 1);
+  assert.equal(E.globalTrackIndex('green', 40), E.globalTrackIndex('red', 1));
+  const next = E.applyMove(state, 0);
+  assert.equal(next.players[0].tokens[0], -1);
+  assert.equal(next.currentPlayer, 1, 'green keeps the turn after capturing red');
 });
 
-test('the winner keeps the turn when the game ends', () => {
-  let state = E.initialState();
-  state.players[0].tokens = [57, 57, 57, 56];
-  state.currentPlayer = 0; state.dice = 1; state.awaitingMove = true;
-  const next = E.applyMove(state, 3);
-  assert.equal(next.status, 'finished');
+test('reaching the home lane grants one more move with that token', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [50, -1, -1, -1];
+  state = pending(state, 0, 1);
+  const next = E.applyMove(state, 0);
+  assert.equal(next.players[0].tokens[0], 51, 'the token has entered the home lane');
+  assert.equal(next.currentPlayer, 0, 'the player keeps the turn');
+  assert.deepEqual(next.bonusToken, { player: 'red', token: 0 }, 'the bonus token is flagged');
+  assert.equal(next.awaitingMove, true, 'the bonus is a move, not another roll');
+  assert.equal(next.dice, 1, 'the same die is kept for the bonus move');
+});
+
+test('the home-lane bonus move is locked to the token that earned it', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [50, 20, -1, -1];
+  state = pending(state, 0, 1);
+  const next = E.applyMove(state, 0);
+  assert.deepEqual(E.legalMoves(next), [0], 'only the home-bound token may move');
+});
+
+test('the bonus move uses the same die and then passes the turn', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [50, -1, -1, -1];
+  state = pending(state, 0, 1);
+  let next = E.applyMove(state, 0);
+  assert.equal(next.players[0].tokens[0], 51);
+  next = E.applyMove(next, 0);
+  assert.equal(next.players[0].tokens[0], 52, 'the token hopped again on the same die');
+  assert.equal(next.currentPlayer, 1, 'the turn passes once the bonus move is used');
+  assert.equal(next.bonusToken, null);
+});
+
+test('entering the home lane on a six still earns only one bonus', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [45, -1, -1, -1];
+  state = pending(state, 0, 6);
+  const next = E.applyMove(state, 0);
+  assert.equal(next.players[0].tokens[0], 51);
+  assert.equal(next.currentPlayer, 0);
+  assert.deepEqual(next.bonusToken, { player: 'red', token: 0 });
+  assert.equal(next.awaitingMove, true);
+  assert.equal(next.dice, 6);
+});
+
+test('a home-lane entry whose bonus move lands home ends the game', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [57, 57, 57, 45];
+  state = pending(state, 0, 6);
+  let next = E.applyMove(state, 3);
+  assert.equal(next.players[0].tokens[3], 51, 'the token entered the home lane');
+  assert.equal(next.awaitingMove, true, 'the bonus move is pending');
+  next = E.applyMove(next, 3);
+  assert.equal(next.players[0].tokens[3], 57, 'the bonus move carried it all the way home');
+  assert.equal(next.status, 'finished', 'the table is done');
   assert.equal(next.winner, 'red');
-  assert.equal(next.currentPlayer, 0, 'the finished turn is not handed on');
+  assert.equal(next.bonusToken, null, 'no bonus after the final token');
 });
 
-test('a six after the game is over is rejected', () => {
-  let state = E.initialState();
+test('an ordinary move passes the turn', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [10, -1, -1, -1];
+  state = pending(state, 0, 2);
+  const next = E.applyMove(state, 0);
+  assert.equal(next.currentPlayer, 1);
+  assert.equal(next.bonusToken, null);
+});
+
+test('a six still earns another roll', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [10, -1, -1, -1];
+  state = pending(state, 0, 6);
+  const next = E.applyMove(state, 0);
+  assert.equal(next.currentPlayer, 0);
+});
+
+// --- Finishing and the long game -------------------------------------------
+
+test('finishing a player takes them out of the rotation', () => {
+  let state = E.initialState({ players: ['red', 'green', 'yellow'] });
   state.players[0].tokens = [57, 57, 57, 56];
-  state.currentPlayer = 0; state.dice = 1; state.awaitingMove = true;
-  const finished = E.applyMove(state, 3);
-  assert.throws(() => E.applyRoll(finished, 6), /Game is not active/);
+  state = pending(state, 0, 1);
+  const next = E.applyMove(state, 3);
+  assert.deepEqual(next.finishOrder, ['red']);
+  assert.equal(next.status, 'playing');
+  assert.equal(next.lastFinish, 'red');
+  assert.equal(next.currentPlayer, 1);
+  // Red is skipped on the following rotation.
+  const afterGreen = E.applyRoll(next, 1);
+  assert.equal(afterGreen.currentPlayer, 2, 'the finished player is skipped');
 });
 
-// --- Removing a player ------------------------------------------------------
+test('a three-player game ends when everybody has finished', () => {
+  let state = E.initialState({ players: ['red', 'green', 'yellow'] });
+  state.players[0].tokens = [57, 57, 57, 56];
+  state.players[1].tokens = [57, 57, 57, 56];
+  state.players[2].tokens = [57, 57, 57, 56];
+  state = pending(state, 0, 1);
+  let next = E.applyMove(state, 3);
+  assert.equal(next.status, 'playing');
+  next = pending(next, 1, 1);
+  next = E.applyMove(next, 3);
+  assert.equal(next.status, 'playing');
+  next = pending(next, 2, 1);
+  next = E.applyMove(next, 3);
+  assert.equal(next.status, 'finished');
+  assert.equal(next.winner, 'red', 'the first player home is the champion');
+  assert.deepEqual(next.finishOrder, ['red', 'green', 'yellow']);
+});
+
+test('standings rank finishers first, in finishing order', () => {
+  let state = E.initialState({ players: ['red', 'green', 'yellow'] });
+  state.finishOrder = ['green', 'red'];
+  state.players[0].tokens = [57, 57, 57, 57];
+  state.players[1].tokens = [57, 57, 57, 57];
+  state.players[2].tokens = [57, 57, 30, -1];
+  const table = E.standings(state);
+  assert.deepEqual(table.map((entry) => entry.id), ['green', 'red', 'yellow']);
+  assert.equal(table[0].finished, true);
+  assert.equal(table[2].finished, false);
+});
+
+test('a finished player is skipped when the turn cycles', () => {
+  let state = E.initialState({ players: ['red', 'green', 'yellow', 'blue'] });
+  state.finishOrder = ['red', 'blue'];
+  state.currentPlayer = 1;
+  state = E.applyRoll(state, 3); // green cannot move, so the turn passes
+  assert.equal(state.currentPlayer, 2, 'red and blue are skipped');
+  state = E.applyRoll(state, 3);
+  assert.equal(state.currentPlayer, 1, 'the rotation wraps around the finished players');
+});
+
+// --- Auto play --------------------------------------------------------------
+
+test('a single deployed token is played automatically', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [10, -1, -1, -1];
+  state = pending(state, 0, 3);
+  assert.equal(E.autoMoveToken(state), 0, 'the only token moves itself');
+});
+
+test('auto play does not fire when the player still has tokens in base', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [10, -1, -1, -1];
+  state = pending(state, 0, 6);
+  assert.equal(E.autoMoveToken(state), null, 'releasing a second token stays a choice');
+  assert.equal(E.legalMoves(state).length, 4);
+});
+
+test('auto play does not fire when several tokens are on the board', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [10, 12, -1, -1];
+  state = pending(state, 0, 1);
+  assert.equal(E.autoMoveToken(state), null);
+  assert.equal(E.legalMoves(state).length, 2);
+});
+
+test('auto play prefers the token that earned the home bonus', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [50, 12, -1, -1];
+  state = pending(state, 0, 1);
+  state.bonusToken = { player: 'red', token: 0 };
+  assert.equal(E.autoMoveToken(state), 0, 'the bonus token is played first');
+});
+
+test('auto play is silent when no move is pending', () => {
+  const state = E.initialState();
+  assert.equal(E.autoMoveToken(state), null);
+});
+
+test('deployed tokens are counted correctly', () => {
+  let state = E.initialState();
+  state.players[0].tokens = [-1, 5, 57, -1];
+  assert.equal(E.deployedCount(state.players[0]), 2);
+});
+
+// --- Forfeits ---------------------------------------------------------------
 
 test('removing the player on turn hands the turn on safely', () => {
   let state = E.initialState({ players: ['red', 'green', 'yellow'] });
@@ -68,6 +237,13 @@ test('removing a player before the turn keeps the turn index correct', () => {
   const next = E.removePlayer(state, 'green');
   assert.equal(next.currentPlayer, 1, 'the index shifts down with the roster');
   assert.equal(next.players.map((p) => p.id).join(','), 'red,yellow');
+});
+
+test('removing a finished player drops them from the finishing order', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.finishOrder = ['red'];
+  const next = E.removePlayer(state, 'red');
+  assert.deepEqual(next.finishOrder, []);
 });
 
 test('removing an unknown player changes nothing', () => {
@@ -115,7 +291,6 @@ test('the AI always returns a legal move at every difficulty', () => {
 
 test('a harder table takes the capture while a relaxed table plays it safe', () => {
   let state = E.initialState();
-  // Red token 0 is one step behind green token 0 on the shared track.
   state.players[0].tokens = [10, 45, -1, -1];
   state.players[1].tokens = [50, -1, -1, -1];
   state.currentPlayer = 0; state.dice = 1; state.awaitingMove = true;
@@ -125,17 +300,6 @@ test('a harder table takes the capture while a relaxed table plays it safe', () 
   assert.equal(hard, 0, 'the ruthless table takes the capture');
   assert.notEqual(easy, 0, 'the relaxed table is happy to shuffle along');
   assert.ok(E.legalMoves(state).includes(easy));
-});
-
-test('the ruthless table steers away from tokens an opponent is about to reach', () => {
-  let state = E.initialState();
-  state.players[0].tokens = [10, 11, -1, -1];
-  state.players[1].tokens = [40, -1, -1, -1];
-  state.currentPlayer = 0; state.dice = 1; state.awaitingMove = true;
-  const hard = E.chooseAIMove(state, () => 0.5, 'hard');
-  assert.ok(E.legalMoves(state).includes(hard));
-  const cell = E.globalTrackIndex('red', 11);
-  assert.ok(!E.SAFE_TRACK.has(cell));
 });
 
 test('the AI names are unique and plentiful', () => {

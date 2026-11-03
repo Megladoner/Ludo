@@ -9,6 +9,8 @@
 - Runtime room persistence contains private seat tokens. Restrict access to data/rooms.json, back it up securely, and do not commit it.
 - The page ships no inline scripts or inline styles, so it satisfies a strict `script-src 'self'` / `style-src 'self'` policy. `npm run check` enforces this.
 - Display names are stripped of control characters and angle brackets on both the client and the server, and every name is escaped before it reaches the DOM.
+- The profile card is browser-local by design. Names, statistics and photos are written to `localStorage` and are never sent to the server, so there is no profile store to breach and no cross-user data to leak. A photo is redrawn to a 256×256 JPEG before it is stored, which keeps it well inside the browser's storage quota and stops a huge upload from being cached.
+- The seat name is escaped before it reaches the DOM, and the server applies the same cleaning to names it receives.
 - Use HTTPS/WSS in production. Configure the reverse proxy to preserve WebSocket upgrades and set the public host consistently.
 
 This is an early MVP security baseline, not a formal penetration test. Before public launch, add dependency and infrastructure scanning, structured audit logs, abuse monitoring, stronger per-IP controls at the edge, secret rotation, backup/restore drills, and an independent security review.
