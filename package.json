@@ -1,0 +1,13 @@
+{
+  "name": "parcheesi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A premium, server-authoritative multiplayer Ludo platform",
+  "scripts": {
+    "dev": "node src/server/index.js",
+    "start": "NODE_ENV=production node src/server/index.js",
+    "test": "node --test",
+    "check": "node --check src/server/index.js && node --check src/server/rooms.js && node --check src/server/websocket.js && node --check src/engine/ludo.js && node --check public/app.js && node --check public/sw.js"
+  },
+  "engines": { "node": ">=22.0.0" }
+}
