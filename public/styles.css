@@ -1431,27 +1431,73 @@ input:focus {
   .action-pair { grid-template-columns: 1fr; }
 }
 
+/* ==========================================================================
+   Voice chat — a small brass microphone in the top bar, a soft marker on
+   every seat that is talking, and a ring around the board while you speak.
+   ========================================================================== */
 
-/* Optional room voice — compact, responsive, and matched to the existing parlour UI. */
-.create-voice-option { margin: 14px 0 2px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
-.voice-panel { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 14px 0 4px; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r-md); background: linear-gradient(135deg, var(--surface), var(--surface-2)); }
-.voice-panel[hidden] { display: none !important; }
-.voice-panel-copy { display: grid; gap: 4px; min-width: 0; }
-.voice-panel-copy .eyebrow { margin: 0; }
-.voice-panel-copy b { color: var(--text); font-size: 13px; font-weight: 600; }
-.voice-panel-copy small { color: var(--muted); font-size: 11px; line-height: 1.45; }
-.voice-toggle { flex: 0 0 auto; white-space: nowrap; min-height: 38px; }
-.voice-bars { display: none; align-items: center; gap: 2px; height: 15px; margin-left: auto; }
-.voice-bars i { display: block; width: 2px; height: 4px; border-radius: 2px; background: var(--brass); }
-.is-speaking .voice-bars { display: inline-flex; }
-.is-speaking .voice-bars i { animation: voice-wave .72s ease-in-out infinite alternate; }
-.is-speaking .voice-bars i:nth-child(2) { animation-delay: .18s; }
-.is-speaking .voice-bars i:nth-child(3) { animation-delay: .34s; }
-.player-seat.is-speaking .seat-dot, .game-player.is-speaking .seat-dot { box-shadow: 0 0 0 4px color-mix(in srgb, var(--brass) 15%, transparent), 0 0 16px color-mix(in srgb, var(--brass) 70%, transparent); }
-.player-seat.is-speaking, .game-player.is-speaking { border-color: color-mix(in srgb, var(--brass) 58%, var(--line)); }
-@keyframes voice-wave { from { height: 4px; opacity: .62; } to { height: 14px; opacity: 1; } }
-@media (max-width: 620px) {
-  .voice-panel { align-items: stretch; flex-direction: column; gap: 10px; }
-  .voice-toggle { width: 100%; }
-  .voice-panel-compact { padding: 11px 12px; }
+.voice-button { position: relative; }
+.voice-button .voice-slash { opacity: 0; transition: opacity .18s var(--ease); }
+.voice-button.is-muted { color: var(--muted); }
+.voice-button.is-muted .voice-slash { opacity: 1; }
+.voice-button.is-live {
+  color: var(--brass);
+  border-color: var(--brass-dim);
+  background: linear-gradient(180deg, var(--brass-dim), transparent);
+}
+.voice-button.is-talking {
+  color: var(--brass);
+  border-color: var(--brass-2);
+  box-shadow: 0 0 0 4px rgba(233, 222, 195, .10);
+}
+.voice-button[hidden] { display: none; }
+
+.voice-sinks {
+  position: fixed;
+  left: 0; bottom: 0;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.voice-badge {
+  display: inline-grid;
+  place-items: center;
+  width: 15px; height: 15px;
+  margin-left: 6px;
+  vertical-align: -3px;
+  color: var(--muted);
+  opacity: .5;
+  transition: color .18s var(--ease), opacity .18s var(--ease);
+}
+.voice-badge svg { width: 11px; height: 11px; }
+.voice-badge.is-live { color: var(--brass); opacity: 1; }
+.voice-badge.is-muted { color: var(--muted); opacity: .8; }
+.voice-badge.is-speaking {
+  color: var(--brass);
+  opacity: 1;
+  filter: drop-shadow(0 0 5px rgba(233, 222, 195, .75));
+  animation: voice-pulse 1.1s ease-in-out infinite;
+}
+.voice-badge.is-off { opacity: .22; }
+
+@keyframes voice-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.22); }
+}
+
+.game-player .voice-badge { margin-left: 7px; }
+.seat-info .voice-badge { margin-left: 6px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-badge.is-speaking { animation: none; }
+}
+
+.create-voice-option {
+  margin-top: 14px;
+  padding: 12px 13px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, .02);
 }

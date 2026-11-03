@@ -1,6 +1,10 @@
 import "../engine/ludo.js";
+import "../voice/ice.js";
+import "../voice/protocol.js";
 
 const ENGINE = globalThis.LudoEngine;
+const ICE = globalThis.ParcheesiIce;
+const VOICE = globalThis.ParcheesiVoiceProtocol;
 const HUB_NAME = "global-room-hub";
 const TTL_MS = 24 * 60 * 60 * 1000;
 const GRACE_MS = 120 * 1000;
@@ -34,7 +38,7 @@ function cleanName(value) {
 }
 function safeRoom(room) {
   return {
-    invite: room.invite, status: room.status, host: room.host, createdAt: room.createdAt, voiceEnabled: !!room.voiceEnabled,
+    invite: room.invite, status: room.status, host: room.host, createdAt: room.createdAt, voiceEnabled: room.voiceEnabled !== false,
     players: room.players.map((p) => ({
       id: p.id, name: p.name, color: p.color, ready: p.ready,
       connected: p.connected, host: p.id === room.host
@@ -118,12 +122,12 @@ export class RoomHub {
     player.connected = true;
     player.disconnectedAt = null;
   }
-  async createRoom(peer, name, voiceEnabled = false) {
+  async createRoom(peer, name, voiceEnabled = true) {
     const invite = inviteCode(8);
     const playerToken = randomToken(24);
     const id = crypto.randomUUID();
     const room = {
-      id, invite, host: id, status: "lobby", voiceEnabled: !!voiceEnabled, createdAt: Date.now(), updatedAt: Date.now(),
+      id, invite, host: id, status: "lobby", createdAt: Date.now(), updatedAt: Date.now(), voiceEnabled: voiceEnabled !== false,
       players: [{ id, token: playerToken, name: cleanName(name), color: "red", ready: true, connected: true, disconnectedAt: null }],
       state: null, sequence: 0
     };
@@ -167,27 +171,24 @@ export class RoomHub {
     const peer = peerFor(ws);
     try {
       const now = Date.now();
-      const rate = this.eventRates.get(ws) || { start: now, count: 0 };
+      const rate = this.eventRates.get(ws) || { start: now, count: 0, voiceStart: now, voiceCount: 0 };
       if (now - rate.start > 10000) { rate.start = now; rate.count = 0; }
-      rate.count++;
+      if (now - rate.voiceStart > 10000) { rate.voiceStart = now; rate.voiceCount = 0; }
+      if (msg.type === "voice.signal") {
+        // A handshake carries a burst of network candidates, so it gets its own budget.
+        rate.voiceCount++;
+        if (rate.voiceCount > 240) throw new Error("Too much voice traffic. Please slow down.");
+      } else {
+        rate.count++;
+        if (rate.count > 50) throw new Error("Too many actions. Please slow down.");
+      }
       this.eventRates.set(ws, rate);
-      if (rate.count > 50) throw new Error("Too many actions. Please slow down.");
       if (!msg || typeof msg.type !== "string") throw new Error("Invalid message");
-      if (msg.type === "room.create") return await this.createRoom(peer, msg.name, msg.voiceEnabled === true);
+      if (msg.type === "room.create") return await this.createRoom(peer, msg.name, msg.voiceEnabled);
       if (msg.type === "room.join") return await this.joinRoom(peer, msg.invite, msg.playerToken, msg.name);
 
       const { room, player } = this.roomContext(ws);
-      if (msg.type === "voice.signal") {
-        if (!room.voiceEnabled) throw new Error("Voice chat is disabled for this room");
-        if (!["offer", "answer", "candidate"].includes(msg.data?.type)) throw new Error("Invalid voice signal");
-        if (typeof msg.targetId !== "string" || msg.targetId === player.id) throw new Error("Invalid voice recipient");
-        if (JSON.stringify(msg.data).length > 16000) throw new Error("Voice signal is too large");
-        const target = room.players.find((p) => p.id === msg.targetId);
-        if (!target) throw new Error("Voice recipient is not in this room");
-        const targetSocket = this.socketForPlayer(room, target.id);
-        if (targetSocket) peerFor(targetSocket).send({ type: "voice.signal", fromId: player.id, data: msg.data });
-        return;
-      } else if (msg.type === "lobby.ready") {
+      if (msg.type === "lobby.ready") {
         if (room.status !== "lobby") throw new Error("Lobby is closed");
         player.ready = !!msg.ready;
         room.sequence++;
@@ -262,6 +263,22 @@ export class RoomHub {
           this.snapshot(room);
         }
         try { ws.close(1000, "Left room"); } catch {}
+        return;
+      } else if (msg.type === "voice.signal") {
+        // The server only carries the handshake. The audio never touches it.
+        if (room.voiceEnabled === false) throw new Error("Voice chat is disabled for this room");
+        const signal = VOICE.parseVoiceSignal(msg, room.players.map((p) => p.color));
+        if (signal.to) {
+          const target = room.players.find((p) => p.color === signal.to);
+          const targetSocket = target ? this.socketForPlayer(room, target.id) : null;
+          if (targetSocket) peerFor(targetSocket).send({ type: "voice.signal", kind: signal.kind, from: player.color, data: signal.data });
+        } else {
+          for (const seated of room.players) {
+            if (seated.id === player.id) continue;
+            const socket = this.socketForPlayer(room, seated.id);
+            if (socket) peerFor(socket).send({ type: "voice.signal", kind: signal.kind, from: player.color, data: signal.data });
+          }
+        }
         return;
       } else if (msg.type === "chat.send") {
         const body = String(msg.text || "").trim().slice(0, 240);
@@ -375,6 +392,12 @@ export default {
     }
     if (url.pathname === "/api/config") {
       return Response.json({ publicUrl: url.origin }, { headers: { "cache-control": "no-store" } });
+    }
+    if (url.pathname === "/api/voice/ice") {
+      // STUN is free and always available. The relay is added when a TURN key
+      // is configured as a Worker secret.
+      const config = await ICE.iceServers(env);
+      return Response.json(config, { headers: { "cache-control": "no-store" } });
     }
     if (url.pathname === "/ws") {
       if (request.headers.get("Upgrade") !== "websocket") return new Response("Expected WebSocket", { status: 426 });

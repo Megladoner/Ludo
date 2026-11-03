@@ -3,6 +3,7 @@
 ## HTTP
 - `GET /health` — liveness response.
 - `GET /api/config` — returns the public URL setting (or request origin).
+- `GET /api/voice/ice` — the ice servers for voice chat. Always includes Cloudflare's free STUN server; includes a short-lived Cloudflare TURN credential when a TURN key is configured as a server secret. Never cached.
 - `GET /` — application shell.
 - `GET /room/:invite` — application shell for a shareable invitation route.
 - `GET /engine.js` — shared browser rules engine.
@@ -28,6 +29,7 @@ Connect to `ws(s)://<host>/ws`. Messages are UTF-8 JSON text frames. Client payl
 | `game.rematch` | `{}` | Room member; only once the game has finished |
 | `game.state` | `{}` | Room member |
 | `room.leave` | `{}` | Room member; releases the seat |
+| `voice.signal` | `{kind, to?, data}` | Room member; the voice handshake is relayed, never the audio |
 | `room.close` | `{}` | Current host |
 | `chat.send` | `{text}` | Room member; 240-character limit |
 

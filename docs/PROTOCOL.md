@@ -8,7 +8,7 @@ Every server message carries a top-level `sequence`. It increases on every state
 
 | Message | Payload | Notes |
 | --- | --- | --- |
-| `room.create` | `name` | Creates a room and returns a seat token. |
+| `room.create` | `name`, `voiceEnabled?` | Creates a room and returns a seat token. `voiceEnabled` defaults to true; a table that turns voice off refuses every `voice.signal`. |
 | `room.join` | `invite`, `playerToken?`, `name` | `invite` is case- and punctuation-insensitive. Send the stored `playerToken` to reclaim a seat. |
 | `lobby.ready` | `ready` | Boolean. |
 | `lobby.rename` | `name` | Changes the sender's display name. |
@@ -16,6 +16,7 @@ Every server message carries a top-level `sequence`. It increases on every state
 | `lobby.start` | — | Host only. Requires at least two players, everyone ready. |
 | `game.roll` | — | Only valid on the player's turn. The server rolls the dice. |
 | `game.move` | `token` | Token index 0–3. Server-validated. Any token the roll legally allows is accepted, including bringing a token out of the box on a six. |
+| `voice.signal` | `kind`, `to`, `data` | The voice handshake. `kind` is `hello`, `here`, `offer`, `answer`, `ice`, `state` or `bye`. The server validates the kind, the seat and the size, then relays it — to one seat for the targeted kinds, or to the whole table for `hello` and `bye`. No audio ever passes through it. |
 | `game.rematch` | — | Only valid once the game has finished. Returns the table to the lobby with everyone unready and clears the finishing order. |
 | `game.state` | — | Requests a fresh snapshot. |
 | `room.leave` | — | Releases the seat. The socket may be closed straight after. |
@@ -48,6 +49,27 @@ The snapshot's `state` is the shared engine's state, version 4. Alongside the cl
 
 Version 3 replaced the version 2 `bonusToken` field. The home lane no longer grants a move, so there is nothing left to point at. A client that still sends it is simply ignored.
 
+### Voice in a room
+The room creator may switch voice off while creating the table. The flag is stored with the room, included in every room snapshot as `voiceEnabled`, and never changes for the life of that room. A table with voice off refuses every `voice.signal` and shows no microphone.
+
+### Voice handshake
+`voice.signal` carries a `kind` and, for the targeted kinds, the seat colour in `to`:
+
+| Kind | Direction | Carries |
+|---|---|---|
+| `hello` | broadcast | The session stamp of the seat that just opened its microphone |
+| `here` | targeted | The session stamp of a seat that is already talking |
+| `offer` | targeted | A WebRTC offer and the session stamp |
+| `answer` | targeted | The reply to that offer and the session stamp |
+| `ice` | targeted | One network candidate and the session stamp |
+| `state` | targeted | Whether the far end has muted its microphone |
+| `bye` | broadcast | The seat has left the voice |
+
+The server refuses an unknown kind, a seat that is not at the table, a payload over 8 KB, and any handshake from a table that turned voice off. The voice handshake has its own rate allowance, because a burst of network candidates would otherwise count against the table's ordinary limit.
+
+### The ICE configuration
+`GET /api/voice/ice` answers with the ice servers the browser should use. It always includes Cloudflare's free STUN server. When a TURN key is configured as a server secret it also returns a short-lived Cloudflare TURN credential (valid up to 48 hours; the server asks for 12). The long-term key stays on the server and is never sent to a browser.
+
 Version 4 changes how a roll is applied, not how it is transmitted. It replaced the "committed roll" with a conditional one: a token on the board plays itself only when it is the only token on the board and nothing is left in the box. A six always offers the box alongside the board, so the player decides between deploying a token and moving one. Version 4 also added `sixStreak` — the snapshot of the table taken when a run of sixes starts, so the third six can put every token back where it was. The field is `null` whenever no run of sixes is in progress.
 
 A three- or four-player game is not over when the first player finishes: `status` stays `playing` until every player has finished, and the finishing order is what ranks the table. A two-player game ends at the first finisher as before.
@@ -64,12 +86,3 @@ A client that reloads the page, loses signal or is interrupted rejoins with `roo
 ## Local profile card
 
 The profile card never touches the network. It is written to `localStorage` in the browser under `parcheesi.profile` and `parcheesi.profile.photo`, and it is not represented in any protocol message. No server endpoint accepts or returns profile data.
-
-
-## Optional room voice
-
-Room creation may include `voiceEnabled: true`. The flag is stored with the room and included in every safe room snapshot. It is immutable for the life of that room. If omitted or false, voice signaling is rejected and clients must not initialize voice connections.
-
-A connected member may send `voice.signal` with `targetId` and `data` (`offer`, `answer`, or `candidate`). The server validates that voice is enabled, the recipient is seated in the same room, the sender is not targeting themselves, and the signaling payload is no larger than 16 KB. The server relays the payload only to that recipient and never relays audio. Audio uses browser WebRTC peer connections with a public STUN server; no TURN relay or paid media provider is configured.
-
-Microphone access is user-initiated. A participant can mute only their own microphone. The UI has no control for muting another participant. Voice connections are closed when leaving the room or when the room's voice feature is disabled.
