@@ -62,17 +62,35 @@ A pass over the feel of the game: where the die sits, where the eye goes, what h
 
 **Verification.** 52 unit tests, stable across repeated runs. A 33-check interface suite, a 40-check feature suite and a 21-check two-browser multiplayer suite drive the real application against the real server over a real WebSocket — 94 browser checks in total, all passing, with no uncaught page errors.
 
+## Cycle 6 — The parlour, and the rules made plain
+A pass over the whole product: the look, the rules, and the three things that were quietly broken.
+
+**The rules were wrong in two places, and one of them was mine.**
+- Reaching the home lane granted an extra move *on the same die*, so a token could leap from the lane entry to the centre. That was the "jumping a couple of squares" report. The lane now walks — one square at a time, exactly as the die says.
+- The extra move now belongs where it belongs: a token that reaches the **home triangle** earns the player one more move.
+- The single-token rule was only half-implemented. With one token out and a six, the table offered four legal moves — the token on the board plus three tokens in base — so it asked the player to choose. The roll is now **committed** to the lone token whatever the die says, and a six with nothing on the board brings a token out by itself. The table never asks a question it does not have to ask.
+
+**Taking a screenshot was ending the room.**
+The cause was not the screenshot: it was that the client had no way back. A reload — or anything that reloaded the page — dropped the player on the home screen with a live game behind them, and a reconnect pushed the player into the lobby instead of back into the game. Three fixes: the client now rejoins the last room on its own with its stored seat token; a reconnect that lands on a running game returns to the game view; and a seat that no longer exists clears itself quietly instead of failing on every load.
+
+**Chat could not be read.**
+Chat messages were pushed into the same list the board story is drawn into, and every board redraw replaced that list — so a message could vanish seconds after it arrived. Chat now has its own panel with the sender's name and colour, its own scroll position, and a compose field that keeps the keyboard up. The story of the game and the conversation are two different things, and they no longer share a list.
+
+**The look.** The interface was rebuilt as one organised stylesheet: a dark parlour with one lit board in the middle of it. Brass accents on near-black, hairline borders with a single light edge, layered shadows, a film of grain over the large dark fields, and a serif display face for the words that matter. No web fonts and no third-party requests, so the strict content-security policy still holds. The board is capped against the viewport height, so the whole table and the dice are always on screen together. The "Resume your table" card was visible on a first visit — the `hidden` attribute was being beaten by a layout rule — and that is fixed too.
+
+**Verification.** 56 unit tests, stable across repeated runs. A 32-check interface suite, a 55-check feature suite and a 22-check two-browser multiplayer suite — 109 browser checks — drive the real application against the real server over a real WebSocket. Every bug above has a check that fails if it comes back.
+
 ## Weighted score
 | Category | Score | Evidence / remaining gap |
 |---|---:|---|
-| Visual design and product experience | 18/20 | Cohesive visual system, original SVG board, real dialogs, motion, podium, responsive layout; no customization studio |
-| Rules and gameplay correctness | 18/20 | Deterministic engine, correct six handling, capture bonus, home-lane bonus move, auto-play, long games with a finishing order, forfeits, standings; alternate rules and blockades remain |
-| Online multiplayer and invitations | 18/20 | Two real browsers, readable codes, lobby, ready/rename/remove, server dice and moves, reconnect with backoff, rematch; no public matchmaking or multi-instance persistence |
+| Visual design and product experience | 19/20 | A rebuilt parlour design system — brass on near-black, hairline borders, grain, serif display type, original SVG board, real dialogs, motion, podium, responsive layout; no customization studio |
+| Rules and gameplay correctness | 19/20 | Deterministic engine, committed single-token rolls, capture bonus, a home lane that walks, the home-triangle bonus, long games with a finishing order, forfeits, standings; alternate rules and blockades remain |
+| Online multiplayer and invitations | 19/20 | Two real browsers, readable codes, lobby, ready/rename/remove, server dice and moves, reconnect with backoff, automatic session resume across reloads, a readable chat, rematch; no public matchmaking or multi-instance persistence |
 | AI, local play, and features | 9/10 | Three difficulty tiers with distinct behaviour, named seats, pass-and-play, bonus turns, auto-play, confetti and a local profile card; no deep search and no cross-device profile |
 | Responsive design and mobile usability | 9/10 | Desktop, laptop, wide and 390px mobile verified in-browser; tablet and landscape untested |
 | Performance, reliability, and security | 8/10 | No-dependency server, secure randomness, strict CSP, validation, rate limits, auto-reconnect; single-process JSON storage and no production TLS/DB hardening |
-| Code quality, accessibility, and testing | 9/10 | Modular engine/server/client, live-region and focus handling, 52 unit tests plus 94 browser checks; screen-reader testing and load tests remain |
-| Total | 88/100 | 8.8/10 |
+| Code quality, accessibility, and testing | 9/10 | Modular engine/server/client, live-region and focus handling, 56 unit tests plus 109 browser checks, one regression check per fixed bug; screen-reader testing and load tests remain |
+| Total | 91/100 | 9.1/10 |
 
 ## Final verdict
 Passes the requested threshold with room to spare as a polished, independently verified MVP. The table now reads clearly at a glance — the die shows whose turn it is, the board frames the player on turn, and the rules reward a good capture or a well-timed home entry. The profile card gives the game a memory without giving up a byte of privacy. The private-room multiplayer flow is real and now provably works end to end in two separate browsers against a live server — which it did not before this pass. This should still not be described as a finished public gaming service until persistence at scale, operational security, public matchmaking, and account features are implemented.

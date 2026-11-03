@@ -35,13 +35,17 @@ The room database starts empty on the first Cloudflare deployment. Existing Node
 
 - **A six** releases a token from base. A six with nothing to move passes the turn.
 - **A capture** — landing on an opponent outside a safe square — sends their token home and earns the capturer **another roll**.
-- **The home lane** is worth more than a turn: a token that enters it gets **one more move with that very token**, on the same die. Only that token may move until the bonus is spent.
-- **One token plays itself.** If a player has exactly one token on the board and exactly one legal move, it moves automatically. Bring out a second token and the choice comes back to you.
+- **One token plays itself.** When a player has exactly one token on the board, the dice belong to that token: whatever the roll, it moves by itself. There is nothing to choose, so nothing is asked. Bring out a second token and the choice comes back to you.
+- **Nothing on the board yet?** A six brings a token out by itself — the four base tokens are interchangeable, so there is no decision to make.
+- **The home lane is a walk.** A token that enters its lane steps in one square at a time. It never leaps.
+- **The home triangle pays.** A token that reaches the centre triangle earns the player one more move.
 - **Three sixes** forfeit the turn.
 - **Two players** end the game the moment the first player brings all four tokens home.
 - **Three or four players** play on until everyone is home, so the table gets a full finishing order. The first player home is still the champion.
 
-## The interface
+## The look
+
+The interface is a dark parlour with one lit board in the middle of it: warm brass accents, hairline borders, a film of grain over the large dark fields, and a serif display face for the words that matter. No web fonts, no third-party requests — the whole page is self-contained and strict-CSP clean.
 
 Nothing uses a native browser prompt any more.
 
@@ -57,7 +61,12 @@ Nothing uses a native browser prompt any more.
 - **The home square of the player on turn is outlined** in a bold two-tone frame that pulses gently and moves with the turn.
 - **The dice tumble**, land on the authoritative number, and ring when a token is picked.
 - **Confetti** falls when a player brings every token home, and a bigger burst marks the champion.
-- **The story so far** panel narrates each move, including captures and home-lane bonuses.
+- **The story so far** narrates every move — captures, lane entries and homecomings.
+- **Table chat** has its own panel. Messages name their sender, keep their colour, scroll into view, and survive a board redraw.
+
+## A table that does not lose your seat
+
+A live game survives everything the browser does to it. Reloading the page, switching apps, losing signal or taking a screenshot all leave the seat intact: the client reconnects with its stored token, reclaims the room, and lands back in the game with the board exactly as it was.
 
 ## Run locally with Node.js
 
@@ -77,6 +86,7 @@ The Node server uses `src/server/` and persists room data in `data/rooms.json`. 
 - `npm run check` — syntax-checks every source file, verifies the browser engine is byte-for-byte identical to the shared engine, and asserts the page ships no inline styles or inline scripts.
 - `npm test` — engine rules, AI behaviour, invitation codes, and live multiplayer against the real WebSocket server.
 - `python3 tools/browser-smoke.py`, `python3 tools/browser-features.py`, and `python3 tools/browser-multiplayer.py` — headless Chromium drives the real interface against the real server over a real WebSocket. See `tools/README.md`.
+- The feature suite pins the behaviour of every rule that has changed, including the committed single-token roll, the home-lane walk, the home-triangle bonus, the session resume and the chat panel.
 
 ## Scope
 

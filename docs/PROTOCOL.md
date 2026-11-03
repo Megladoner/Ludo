@@ -15,7 +15,7 @@ Every server message carries a top-level `sequence`. It increases on every state
 | `lobby.kick` | `playerId` | Host only. Removes another player from the table. |
 | `lobby.start` | — | Host only. Requires at least two players, everyone ready. |
 | `game.roll` | — | Only valid on the player's turn. The server rolls the dice. |
-| `game.move` | `token` | Token index 0–3. Server-validated. While a bonus move is pending, only the bonus token is accepted. |
+| `game.move` | `token` | Token index 0–3. Server-validated. When a player has only one token in play, only that token is accepted — the roll is committed to it. |
 | `game.rematch` | — | Only valid once the game has finished. Returns the table to the lobby with everyone unready and clears the finishing order. |
 | `game.state` | — | Requests a fresh snapshot. |
 | `room.leave` | — | Releases the seat. The socket may be closed straight after. |
@@ -38,14 +38,15 @@ Every server message carries a top-level `sequence`. It increases on every state
 
 ## Game state
 
-The snapshot's `state` is the shared engine's state, version 2. Alongside the classic fields it carries:
+The snapshot's `state` is the shared engine's state, version 3. Alongside the classic fields it carries:
 
 | Field | Notes |
 | --- | --- |
 | `finishOrder` | Players who have brought all four tokens home, in the order they did it. Empty until somebody finishes. |
 | `lastFinish` | The player who finished most recently. |
-| `bonusToken` | `{player, token}` when a token has entered its home lane and is owed one more move. `null` otherwise. |
-| `version` | The engine version (`2`). Clients ignore unknown fields, so old clients still parse new snapshots. |
+| `version` | The engine version (`3`). Clients ignore unknown fields, so old clients still parse new snapshots. |
+
+Version 3 replaced the version 2 `bonusToken` field. The home lane no longer grants a move, so there is nothing left to point at. A client that still sends it is simply ignored.
 
 A three- or four-player game is not over when the first player finishes: `status` stays `playing` until every player has finished, and the finishing order is what ranks the table. A two-player game ends at the first finisher as before.
 
@@ -54,6 +55,9 @@ A three- or four-player game is not over when the first player finishes: `status
 * **Invitation codes** are eight characters from `ABCDEFGHJKMNPQRSTUVWXYZ23456789` — no `I`, `L`, `O`, `0` or `1`, so a code can be read aloud without confusion. Entry is normalised: case, spaces, dashes and slashes are ignored.
 * **Seat tokens** are long random bearer credentials stored per browser under `parcheesi:<invite>`. They reclaim a seat after a reload or a dropped connection. Never share them.
 * A dropped socket keeps the seat for the grace period and marks the player as reconnecting. An explicit `room.leave` releases the seat immediately and forfeits any tokens that player still had on the board.
+
+## Rejoining
+A client that reloads the page, loses signal or is interrupted rejoins with `room.join` and its stored seat token. The server hands the seat back and the client is put straight back into the running game. The room itself is never torn down by a dropped connection: the seat is held for a grace period.
 
 ## Local profile card
 

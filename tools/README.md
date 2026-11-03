@@ -16,12 +16,12 @@ playwright install chromium      # or set CHROME_PATH to an existing Chromium
 Each script starts the Node server itself on `PORT` (default `3399`) and reuses one if it is already listening.
 
 ```bash
-python3 tools/browser-smoke.py        # 33 checks: every dialog, both local modes, settings, mobile
-python3 tools/browser-features.py     # 40 checks: the travelling die, the turn frame, the rules, the profile
-python3 tools/browser-multiplayer.py  # 21 checks: two browsers, one table
+python3 tools/browser-smoke.py        # 32 checks: every dialog, both local modes, settings, mobile
+python3 tools/browser-features.py     # 55 checks: the travelling die, the turn frame, the rules, the profile, the session
+python3 tools/browser-multiplayer.py  # 22 checks: two browsers, one table
 ```
 
-`browser-features.py` drives the table precisely by reaching into the page's own engine and stubs the dice, so a check about "one token plays itself" is about the real behaviour rather than a lucky roll.
+`browser-features.py` drives the table precisely by reaching into the page's own engine and stubs the dice, so a check about "one token plays itself" is about the real behaviour rather than a lucky roll. It also reloads a live room mid-game to prove the seat survives, and checks that a chat message reaches the other player and survives a board redraw.
 
 Environment variables:
 

@@ -107,35 +107,39 @@ with sync_playwright() as p:
           ("c-" + str(host_seat)) in host_frame and ("c-" + str(guest_seat)) in guest_frame,
           f"host={host_frame} guest={guest_frame}")
 
-    # Play on until a token can actually be moved. A lone token plays itself, so
-    # give an automatic move a moment to settle before reaching for the mouse.
+    # Play on until a token has actually moved. A lone token plays itself, so the
+    # board may advance without anyone touching it — count the moves, not the taps.
+    def moves(pg):
+        return pg.evaluate("() => ((state.game && state.game.history) || []).filter((h) => h.type === 'move').length")
+
     moved = False
+    seen = moves(host)
     for _ in range(40):
-        for pg in (host, guest):
-            if "highlighted" not in pg.inner_text("#move-hint"):
-                continue
-            pg.wait_for_timeout(800)
-            if "highlighted" not in pg.inner_text("#move-hint"):
-                continue
-            hits = pg.locator("#game-board .hit")
-            if not hits.count():
-                continue
-            try:
-                hits.first.click(timeout=3000)
-                moved = True
-            except Exception:
-                pass
-            pg.wait_for_timeout(900)
-            break
-        if moved:
-            break
+        rolled = False
         for pg in (host, guest):
             if not pg.is_disabled("#roll-dice"):
                 pg.click("#roll-dice")
-                pg.wait_for_timeout(900)
+                pg.wait_for_timeout(1400)
+                rolled = True
                 break
-        else:
+        if not rolled:
+            # Nobody can roll, so somebody has to choose a token.
+            for pg in (host, guest):
+                if "highlighted" in pg.inner_text("#move-hint"):
+                    hits = pg.locator("#game-board .hit")
+                    if hits.count():
+                        try:
+                            hits.first.click(timeout=3000)
+                        except Exception:
+                            pass
+                        pg.wait_for_timeout(900)
+                    break
             time.sleep(0.4)
+        now = moves(host)
+        if now > seen:
+            seen = now
+            moved = True
+            break
     check("a token was moved in the multiplayer game", moved)
     guest.wait_for_timeout(600)
     check("both clients stayed in sync (same history length)",
@@ -146,7 +150,9 @@ with sync_playwright() as p:
     guest.fill("#chat-input", "good luck!")
     guest.click("#chat-send")
     host.wait_for_timeout(800)
-    check("chat reaches the other player", "good luck!" in host.inner_text("#activity-list"))
+    check("chat reaches the other player", "good luck!" in host.inner_text("#chat-list"),
+          host.inner_text("#chat-list")[:80])
+    check("the chat names its sender", "Bo" in host.inner_text("#chat-list"))
     check("unread badge appears for the host", host.is_visible("#chat-badge"))
 
     # Leave -> the other player is notified

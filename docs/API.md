@@ -48,6 +48,9 @@ The seat token is a bearer credential. Keep it private. Room snapshots deliberat
 
 Invitation codes are eight characters drawn from `ABCDEFGHJKMNPQRSTUVWXYZ23456789` — no look-alike characters, so a code can be dictated over a phone. Entry normalises case and ignores spaces, dashes and slashes. The code is separate from internal UUIDs.
 
+## Chat
+`chat.send` carries up to 240 characters and is broadcast to every seat as `chat.message` with the sender's name and colour. It is not stored: a chat lives only as long as the room is open.
+
 ## Profile storage
 
 There is deliberately no profile API. The name, the statistics, the recent-match history and the photo live in the browser's `localStorage` under `parcheesi.profile` and `parcheesi.profile.photo`. Clearing site data removes them. They are never uploaded, never shared between browsers, and never visible to the server.

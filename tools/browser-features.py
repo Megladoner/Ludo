@@ -137,6 +137,23 @@ with sync_playwright() as p:
     check("the turn passed after the automatic move",
           page.evaluate("() => state.game.currentPlayer") == 1)
 
+    # A six must not ask the player to choose when only one token is out.
+    page.evaluate("""() => {
+      const g = LudoEngine.initialState({players:['red','green'], names:{red:'Aria',green:'Bo'}});
+      g.players[0].tokens = [-1, 6, -1, -1];
+      state.game = g; state.local = true; renderGame(); view('game-view');
+      window.__rand = Math.random; Math.random = () => 0.99;
+    }""")
+    page.click("#roll-dice")
+    page.wait_for_timeout(1500)
+    tokens = page.evaluate("() => state.game.players[0].tokens.slice()")
+    check("a six does not interrupt a lone token", tokens[1] == 12, str(tokens))
+    check("no second token was released", sum(1 for t in tokens if t >= 0) == 1, str(tokens))
+    check("the table never asked the player to choose",
+          page.evaluate("() => state.game.players[0].tokens[1]") == 12
+          and page.evaluate("() => state.game.awaitingMove") is False,
+          str(page.evaluate("() => state.game.awaitingMove")))
+
     # --- 4. Manual play returns when more than one token is out -----------
     page.evaluate("""() => {
       const g = LudoEngine.initialState({players:['red','green'], names:{red:'Aria',green:'Bo'}});
@@ -154,7 +171,7 @@ with sync_playwright() as p:
     page.wait_for_timeout(500)
     check("the chosen token moved", page.evaluate("() => state.game.players[0].tokens[1]") == 10)
 
-    # --- 5. The home lane buys one more move with that token --------------
+    # --- 5. The home lane walks, it does not jump -------------------------
     page.evaluate("""() => {
       const g = LudoEngine.initialState({players:['red','green'], names:{red:'Aria',green:'Bo'}});
       g.players[0].tokens = [50, -1, -1, -1];
@@ -162,11 +179,38 @@ with sync_playwright() as p:
       window.__rand = Math.random; Math.random = () => 0;
     }""")
     page.click("#roll-dice")
-    page.wait_for_timeout(1800)
+    page.wait_for_timeout(1600)
     landed = page.evaluate("() => state.game.players[0].tokens[0]")
-    check("a token in the home lane gets a second move", landed == 52, str(landed))
-    check("the turn passes once the bonus move is spent",
+    check("a token enters the home lane and stops there", landed == 51, str(landed))
+    check("the turn passes after the lane entry",
           page.evaluate("() => state.game.currentPlayer") == 1)
+
+    # A six must not carry the token past the lane entry either.
+    page.evaluate("""() => {
+      const g = LudoEngine.initialState({players:['red','green'], names:{red:'Aria',green:'Bo'}});
+      g.players[0].tokens = [45, -1, -1, -1];
+      state.game = g; state.local = true; renderGame(); view('game-view');
+      window.__rand = Math.random; Math.random = () => 0.99;
+    }""")
+    page.click("#roll-dice")
+    page.wait_for_timeout(1600)
+    jumped = page.evaluate("() => state.game.players[0].tokens[0]")
+    check("a six does not leap past the lane entry", jumped == 51, str(jumped))
+
+    # --- 5b. The home triangle earns one more move ------------------------
+    page.evaluate("""() => {
+      const g = LudoEngine.initialState({players:['red','green'], names:{red:'Aria',green:'Bo'}});
+      g.players[0].tokens = [56, -1, -1, -1];
+      state.game = g; state.local = true; renderGame(); view('game-view');
+      window.__rand = Math.random; Math.random = () => 0;
+    }""")
+    page.click("#roll-dice")
+    page.wait_for_timeout(1600)
+    check("a token that reaches the centre is home",
+          page.evaluate("() => state.game.players[0].tokens[0]") == 57)
+    check("reaching the centre earns another move",
+          page.evaluate("() => state.game.currentPlayer") == 0,
+          str(page.evaluate("() => state.game.currentPlayer")))
 
     # --- 6. A capture earns the captor another roll ------------------------
     page.evaluate("""() => {
@@ -264,6 +308,56 @@ with sync_playwright() as p:
           page.evaluate("() => ParcheesiProfile.get().stats.total.played") == 0)
     check("the photo is cleared too",
           not page.evaluate("() => localStorage.getItem('parcheesi.profile.photo')"))
+
+    # --- 11. The table survives a reload ----------------------------------
+    # A screenshot, a refresh or an app switch must never end a live game.
+    guest_ctx = browser.new_context(viewport={"width": 1440, "height": 950})
+    guest = guest_ctx.new_page()
+    guest.on("pageerror", lambda e: errors.append("guest: " + str(e)))
+    guest.goto(BASE, wait_until="networkidle")
+    page.goto(BASE, wait_until="networkidle")
+
+    page.click("#create-room")
+    page.wait_for_selector("#name-dialog[open]", timeout=6000)
+    page.fill("#name-input", "Aria")
+    page.click("#name-confirm")
+    page.wait_for_selector("#lobby-view:not(.hidden)", timeout=10000)
+    code = page.inner_text("#room-code").strip()
+    check("a room was opened for the reload test", bool(code), code)
+
+    guest.click("#join-room")
+    guest.wait_for_selector("#join-dialog[open]", timeout=6000)
+    guest.fill("#join-code", code.lower())
+    guest.fill("#player-name", "Bo")
+    guest.click("#join-confirm")
+    guest.wait_for_selector("#lobby-view:not(.hidden)", timeout=10000)
+    guest.click("#toggle-ready")
+    page.wait_for_timeout(700)
+    page.click("#start-game")
+    page.wait_for_selector("#game-view:not(.hidden)", timeout=10000)
+    check("the table is live before the reload", page.is_visible("#game-view"))
+
+    page.reload(wait_until="networkidle")
+    page.wait_for_selector("#game-view:not(.hidden)", timeout=15000)
+    check("the game is still on screen after a reload", page.is_visible("#game-view"))
+    check("the seat was reclaimed after a reload",
+          page.evaluate("() => state.room && state.room.invite") == code,
+          str(page.evaluate("() => state.room && state.room.invite")))
+    check("the board came back after a reload",
+          page.evaluate("() => document.querySelectorAll('#game-board .token-g').length") > 0)
+
+    # --- 12. Chat is readable and it survives a redraw --------------------
+    guest.fill("#chat-input", "Good luck, everyone")
+    guest.click("#chat-send")
+    page.wait_for_timeout(900)
+    chat_text = page.inner_text("#chat-list")
+    check("a chat message reaches the other player", "Good luck, everyone" in chat_text, chat_text[:90])
+    check("the chat shows who wrote it", "Bo" in chat_text, chat_text[:90])
+    page.evaluate("() => renderGame()")
+    page.wait_for_timeout(300)
+    check("a board redraw does not wipe the chat",
+          "Good luck, everyone" in page.inner_text("#chat-list"))
+    check("the chat has its own panel", page.locator("#chat-list").count() == 1)
 
     check("no uncaught page errors", not errors, "; ".join(errors[:3]))
     browser.close()
