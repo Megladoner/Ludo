@@ -13,4 +13,5 @@ jobs:
         with:
           node-version: 22
       - run: npm run check
+      - run: node --check src/worker/index.js
       - run: npm test
