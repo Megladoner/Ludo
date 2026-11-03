@@ -35,11 +35,11 @@ The room database starts empty on the first Cloudflare deployment. Existing Node
 
 - **A six** releases a token from base. A six with nothing to move passes the turn.
 - **A capture** — landing on an opponent outside a safe square — sends their token home and earns the capturer **another roll**.
-- **One token plays itself.** When a player has exactly one token on the board, the dice belong to that token: whatever the roll, it moves by itself. There is nothing to choose, so nothing is asked. Bring out a second token and the choice comes back to you.
-- **Nothing on the board yet?** A six brings a token out by itself — the four base tokens are interchangeable, so there is no decision to make.
+- **One token on the board plays itself.** When a player has exactly one token on the board and nothing left in the box, the dice belong to that token: whatever the roll, it moves by itself. Bring out a second token and the choice comes back to you.
+- **A six never plays itself.** While a token is still waiting in the starting box, a six is a real question: deploy that token, or move the one already on the board? The table asks, and it waits for the answer. With nothing on the board at all, a six still asks which token should come out.
 - **The home lane is a walk.** A token that enters its lane steps in one square at a time. It never leaps.
 - **The home triangle pays.** A token that reaches the centre triangle earns the player one more move.
-- **Three sixes** forfeit the turn.
+- **Three sixes** forfeit the turn, and every token touched during that run of sixes goes back where it was — a token that was brought out returns to the box, a token that was moved returns to its square.
 - **Two players** end the game the moment the first player brings all four tokens home.
 - **Three or four players** play on until everyone is home, so the table gets a full finishing order. The first player home is still the champion.
 
@@ -86,7 +86,7 @@ The Node server uses `src/server/` and persists room data in `data/rooms.json`. 
 - `npm run check` — syntax-checks every source file, verifies the browser engine is byte-for-byte identical to the shared engine, and asserts the page ships no inline styles or inline scripts.
 - `npm test` — engine rules, AI behaviour, invitation codes, and live multiplayer against the real WebSocket server.
 - `python3 tools/browser-smoke.py`, `python3 tools/browser-features.py`, and `python3 tools/browser-multiplayer.py` — headless Chromium drives the real interface against the real server over a real WebSocket. See `tools/README.md`.
-- The feature suite pins the behaviour of every rule that has changed, including the committed single-token roll, the home-lane walk, the home-triangle bonus, the session resume and the chat panel.
+- The feature suite pins the behaviour of every rule that has changed, including the conditional single-token roll, the three-sixes rollback, the home-lane walk, the home-triangle bonus, the session resume and the chat panel.
 
 ## Scope
 

@@ -1,14 +1,16 @@
 # PARCHEESI — Architecture
 
 ## Shared game engine
-- `src/engine/ludo.js`: deterministic game rules, standings, and AI heuristics for three difficulty tiers. The engine is versioned (`version: 3`) and carries `finishOrder` and `lastFinish` alongside the classic fields.
+- `src/engine/ludo.js`: deterministic game rules, standings, and AI heuristics for three difficulty tiers. The engine is versioned (`version: 4`) and carries `finishOrder`, `lastFinish` and `sixStreak` alongside the classic fields.
 - `public/engine.js`: browser-served copy of the shared engine. CI verifies it stays byte-for-byte synchronized with the source.
 - `public/`: responsive PWA frontend, manifest, styles, icons, and offline shell.
 - `public/boot.js`: restores the saved board theme before first paint. It lives in its own file rather than an inline script so the page stays free of inline code and satisfies a strict `script-src 'self'` policy.
 
 ## Rules the engine owns
-- **A committed roll.** `committedToken` returns the player's only token in play, if there is exactly one. `legalMoves` then offers that token and nothing else — a six does not offer the base tokens instead. The dice belong to the lone token, whatever they say.
-- **Automatic play.** `autoMoveToken` plays the committed token, or releases a token from base when nothing is out yet, or falls back to the single legal move. The table never asks a question it does not have to ask. The client applies it; the server still validates the move.
+- **Every choice stays on the table.** `legalMoves` returns every move the roll allows: the tokens on the board that can take it, and — on a six — the tokens still in the starting box. Nothing is filtered behind the player's back.
+- **Conditional automatic play.** `autoMoveToken` counts the player's tokens *on the board* (`activeTokens` — the starting box and the home triangle do not count). One token on the board and nothing left in the box moves by itself; two or more tokens on the board always ask; a six that could still deploy a token always asks, because deploying and moving are two different answers; a six with an empty board asks which token should come out. A six never deploys a token by itself. The client applies the move; the server still validates it.
+- **The count is recalculated after every action.** Deploying, moving, capturing and reaching the centre all change how many tokens are on the board, so the next decision is always made from the current position — including for an opponent who has just lost a token to a capture.
+- **Three sixes roll the table back.** `applyRoll` snapshots the table when the first six of a run is thrown. On the third six the snapshot is restored: a token brought out during the run returns to the box, a token that was moved returns to its exact square, and a capture made during the run never happened. Only that run is undone — the turn simply passes.
 - **Bonus roll on a capture.** Landing on an opponent keeps the turn with the capturer, who rolls again.
 - **The home lane walks.** Entering the lane grants nothing. The token steps in one square at a time, and it never leaps.
 - **The home triangle pays.** A token that lands on the centre square earns the player one more move.
