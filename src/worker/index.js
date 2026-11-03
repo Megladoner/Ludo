@@ -4,6 +4,8 @@ const ENGINE = globalThis.LudoEngine;
 const HUB_NAME = "global-room-hub";
 const TTL_MS = 24 * 60 * 60 * 1000;
 const GRACE_MS = 120 * 1000;
+// Unambiguous alphabet: no I, L, O, 0 or 1, so codes can be read aloud without confusion.
+const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
 function randomToken(bytes = 24) {
   const data = new Uint8Array(bytes);
@@ -12,8 +14,23 @@ function randomToken(bytes = 24) {
   for (const value of data) binary += String.fromCharCode(value);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
+function inviteCode(length = 8) {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  let code = "";
+  for (let i = 0; i < length; i++) code += CODE_ALPHABET[bytes[i] % CODE_ALPHABET.length];
+  return code;
+}
+function normalizeInvite(value) {
+  return String(value || "").toUpperCase().split("").filter((ch) => CODE_ALPHABET.includes(ch)).join("");
+}
 function cleanName(value) {
-  return String(value || "Player").replace(/[<>\u0000-\u001f]/g, "").trim().slice(0, 20) || "Player";
+  // Strip control characters and angle brackets without relying on literal escapes.
+  const printable = String(value || "Player").split("").filter((ch) => {
+    const code = ch.codePointAt(0);
+    return code > 31 && code !== 127;
+  }).join("");
+  return printable.replace(/[<>]/g, "").trim().slice(0, 20) || "Player";
 }
 function safeRoom(room) {
   return {
@@ -50,11 +67,19 @@ export class RoomHub {
   }
   async restore() {
     const stored = await this.ctx.storage.list({ prefix: "room:" });
+    const liveSeats = new Set();
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = ws.deserializeAttachment();
+      if (attachment?.invite && attachment?.playerId) {
+        liveSeats.add(attachment.invite + ":" + attachment.playerId);
+      }
+    }
     for (const [key, room] of stored) {
       room.peers = new Map();
       for (const player of room.players) {
-        player.connected = false;
-        player.disconnectedAt = Date.now();
+        player.connected = liveSeats.has(room.invite + ":" + player.id);
+        if (!player.connected && !player.disconnectedAt) player.disconnectedAt = Date.now();
+        if (player.connected) player.disconnectedAt = null;
       }
       this.rooms.set(key.slice(5), room);
     }
@@ -75,7 +100,7 @@ export class RoomHub {
   emit(room, message) {
     for (const player of room.players) {
       const ws = this.socketForPlayer(room, player.id);
-      if (ws) peerFor(ws).send(message);
+      if (ws) peerFor(ws).send({ sequence: room.sequence, ...message });
     }
   }
   snapshot(room) { this.emit(room, { type: "room.snapshot", room: safeRoom(room) }); }
@@ -94,7 +119,7 @@ export class RoomHub {
     player.disconnectedAt = null;
   }
   async createRoom(peer, name) {
-    const invite = randomToken(18);
+    const invite = inviteCode(8);
     const playerToken = randomToken(24);
     const id = crypto.randomUUID();
     const room = {
@@ -105,10 +130,11 @@ export class RoomHub {
     this.rooms.set(invite, room);
     this.attach(room, room.players[0], peer.ws);
     await this.persist(room);
-    peer.send({ type: "room.created", invite, playerToken, playerColor: "red", room: safeRoom(room) });
+    peer.send({ type: "room.created", sequence: room.sequence, invite, playerToken, playerColor: "red", room: safeRoom(room) });
   }
   async joinRoom(peer, invite, playerToken, name) {
-    const room = this.rooms.get(String(invite));
+    const code = normalizeInvite(invite);
+    const room = this.rooms.get(code);
     if (!room || Date.now() - room.createdAt > TTL_MS) throw new Error("Invitation is invalid or expired");
     let player = room.players.find((p) => p.token === playerToken);
     if (!player) {
@@ -123,9 +149,10 @@ export class RoomHub {
     }
     this.attach(room, player, peer.ws);
     this.migrateHost(room);
+    room.sequence++;
     room.updatedAt = Date.now();
     await this.persist(room);
-    peer.send({ type: "room.joined", invite, playerToken: player.token, playerColor: player.color, room: safeRoom(room) });
+    peer.send({ type: "room.joined", sequence: room.sequence, invite: room.invite, playerToken: player.token, playerColor: player.color, room: safeRoom(room) });
     this.snapshot(room);
   }
   roomContext(ws) {
@@ -153,6 +180,24 @@ export class RoomHub {
       if (msg.type === "lobby.ready") {
         if (room.status !== "lobby") throw new Error("Lobby is closed");
         player.ready = !!msg.ready;
+        room.sequence++;
+      } else if (msg.type === "lobby.rename") {
+        const next = cleanName(msg.name);
+        if (!next) throw new Error("Name cannot be empty");
+        player.name = next;
+        room.sequence++;
+      } else if (msg.type === "lobby.kick") {
+        if (player.id !== room.host) throw new Error("Only the host can remove a player");
+        const target = room.players.find((p) => p.id === msg.playerId);
+        if (!target) throw new Error("That player is not at this table");
+        if (target.id === room.host) throw new Error("The host cannot be removed");
+        room.players = room.players.filter((p) => p.id !== target.id);
+        const targetSocket = this.socketForPlayer(room, target.id);
+        if (targetSocket) {
+          peerFor(targetSocket).send({ type: "room.kicked" });
+          try { targetSocket.close(1000, "Removed from room"); } catch {}
+        }
+        room.sequence++;
       } else if (msg.type === "lobby.start") {
         if (player.id !== room.host) throw new Error("Only the host can start the game");
         if (room.status !== "lobby") throw new Error("Game already started");
@@ -165,6 +210,7 @@ export class RoomHub {
         room.status = "playing";
         room.sequence++;
         this.emit(room, { type: "game.started", sequence: room.sequence, room: safeRoom(room) });
+        return;
       } else if (msg.type === "game.roll") {
         if (room.status !== "playing") throw new Error("Game is not active");
         if (room.state.players[room.state.currentPlayer].id !== player.color) throw new Error("It is not your turn");
@@ -172,6 +218,7 @@ export class RoomHub {
         room.state = ENGINE.applyRoll(room.state, roll);
         room.sequence++;
         this.emit(room, { type: "game.update", sequence: room.sequence, room: safeRoom(room), event: { type: "roll", player: player.color, roll } });
+        return;
       } else if (msg.type === "game.move") {
         if (room.status !== "playing") throw new Error("Game is not active");
         if (room.state.players[room.state.currentPlayer].id !== player.color) throw new Error("It is not your turn");
@@ -180,21 +227,37 @@ export class RoomHub {
         room.sequence++;
         if (room.state.status === "finished") room.status = "finished";
         this.emit(room, { type: "game.update", sequence: room.sequence, room: safeRoom(room), event: { type: "move", player: player.color, token: msg.token } });
+        return;
+      } else if (msg.type === "game.rematch") {
+        if (room.status !== "finished") throw new Error("The game is still running");
+        room.state = null;
+        room.status = "lobby";
+        for (const seated of room.players) seated.ready = false;
+        room.sequence++;
       } else if (msg.type === "game.state") {
-        peer.send({ type: "room.snapshot", room: safeRoom(room) });
+        peer.send({ type: "room.snapshot", sequence: room.sequence, room: safeRoom(room) });
+        return;
       } else if (msg.type === "room.leave") {
-        player.connected = false;
-        player.disconnectedAt = Date.now();
-        this.migrateHost(room);
-        room.updatedAt = Date.now();
-        await this.persist(room);
-        this.snapshot(room);
+        // An explicit leave releases the seat. A dropped socket keeps the seat for the grace period instead.
+        room.players = room.players.filter((p) => p.id !== player.id);
+        if (room.state) ENGINE.removePlayer(room.state, player.color);
+        room.sequence++;
+        if (!room.players.length) {
+          this.rooms.delete(room.invite);
+          await this.ctx.storage.delete("room:" + room.invite);
+        } else {
+          this.migrateHost(room);
+          room.updatedAt = Date.now();
+          await this.persist(room);
+          this.snapshot(room);
+        }
         try { ws.close(1000, "Left room"); } catch {}
         return;
       } else if (msg.type === "chat.send") {
         const body = String(msg.text || "").trim().slice(0, 240);
         if (!body) return;
         this.emit(room, { type: "chat.message", player: player.name, color: player.color, text: body, sequence: ++room.sequence });
+        return;
       } else if (msg.type === "room.close") {
         if (player.id !== room.host) throw new Error("Only the host can close the room");
         this.emit(room, { type: "room.closed" });
@@ -225,6 +288,7 @@ export class RoomHub {
     player.connected = false;
     player.disconnectedAt = Date.now();
     this.migrateHost(room);
+    room.sequence++;
     room.updatedAt = Date.now();
     await this.persist(room);
     this.snapshot(room);

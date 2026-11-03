@@ -19,17 +19,60 @@ Cycle 2 score: 72/100.
 ## Cycle 3 — Final polish and verification
 Verification: 15/15 tests pass, including independent client room lifecycle and synchronized legal movement. Chromium/Playwright smoke test verified desktop and 390px mobile rendering, local AI entry, token selection/movement, and no JavaScript errors. Health, root, invitation route, and engine asset endpoints returned HTTP 200 during local server checks.
 
+## Cycle 4 — The dialogue edition
+A full pass over the interface, the rules and the transport, driven by "nothing should feel like a browser default".
+
+**Interface.** Both native `prompt()` calls are gone. The name request and the player-count request are now real sheets with labelled fields, validation, live counters and keyboard-first behaviour, plus a table menu, a reusable confirmation sheet, and per-seat naming. Every sheet resolves a promise, refuses to close on invalid input, and gives focus back to whatever opened it.
+
+**Bugs found and fixed.**
+- The WebSocket URL was assembled as `ws//host` — the scheme colon was missing, so the socket never opened. **Multiplayer had never actually connected**, on any deployment.
+- A six with no legal move granted another roll instead of passing the turn, which is not how the board works.
+- The winner's turn was handed on, so the result screen named the wrong player on turn.
+- Leaving a table kept the seat and left the departing player on the board with no way to move, which could deadlock the turn. Leaving now releases the seat and forfeits their tokens.
+- The page shipped an inline theme script and fifteen inline style attributes, both blocked by the server's own `script-src 'self'` / `style-src 'self'` policy.
+- The board overflowed the viewport on every desktop size, so players had to scroll to see the dice.
+
+**Protocol.** Every server message now carries a monotonic `sequence`, and clients discard older frames. This removed the last flake in the multiplayer suite rather than masking it.
+
+**Presentation.** Dice tumble and land on the server's number. Tokens animate along the track and captured tokens fly home. Sound is on by default with a menu toggle. The board is capped to the viewport so the whole table and the dice are always visible together. Results show a podium and a standings table. Invitation codes are eight readable characters with no look-alikes, and entry forgives case and punctuation.
+
+**Verification.** 36 automated tests, stable across five consecutive runs. A 33-check browser suite and a 19-check two-browser multiplayer suite drive the real application against the real server over a real WebSocket — not an injected document.
+
+## Cycle 5 — The living table
+A pass over the feel of the game: where the die sits, where the eye goes, what happens when a rule bends, and what the game remembers afterwards.
+
+**The die has a seat.** The die used to sit in a fixed panel beside the board, so it never told you whose turn it was. It now lives in the free inner corner of the home square of the player on turn and slides across the board as the turns change hands — on every client's screen, not just your own.
+
+**The turn is drawn on the board.** The home square of whoever is on turn wears a bold two-tone frame that pulses gently and cycles with the turn. You can see whose turn it is without reading a single word.
+
+**The rules bent, on purpose.**
+- A capture now earns the capturer another roll, as it does on a real board.
+- Entering the home lane is worth an **extra move with that very token**, not merely another turn. The engine locks the legal move to that token until the bonus is spent, so it cannot be used to shuffle another token forward.
+- A player with exactly one token on the board and exactly one legal move now plays it automatically. Bring out a second token and the choice comes straight back.
+- With three or four players the table plays on after the first finisher, so everyone gets home and the result screen can show a full finishing order. Two-player games still end at the first finisher.
+
+**Bugs found and fixed while building it.**
+- `writeJSON` was lost in the client rewrite, so saving preferences threw and the settings sheet could never close. Caught by the browser suite, not by inspection.
+- `sfx.enter` was called but never defined, which threw when sound was switched on from the table menu.
+- The home-lane bonus originally granted another roll instead of another move, which did not match the rule as specified. The engine was corrected and the tests rewritten around the new semantics.
+- A failed multiplayer roll left the die tumbling forever.
+- The result screen and the confetti could fire twice on the same finished game; both are now behind a one-shot guard that is cleared when a rematch starts.
+
+**The profile card.** A local-only dashboard opened from the avatar: name, photo, matches played/won/lost, the split between the computer and friends, and a short history. It lives entirely in `localStorage` — two keys, no server, no account, no upload. Photos are redrawn to a 256×256 JPEG before they are stored.
+
+**Verification.** 52 unit tests, stable across repeated runs. A 33-check interface suite, a 40-check feature suite and a 21-check two-browser multiplayer suite drive the real application against the real server over a real WebSocket — 94 browser checks in total, all passing, with no uncaught page errors.
+
 ## Weighted score
 | Category | Score | Evidence / remaining gap |
 |---|---:|---|
-| Visual design and product experience | 16/20 | Cohesive dark visual system, original SVG board, responsive layout; no full customization studio or motion/audio polish |
-| Rules and gameplay correctness | 16/20 | Deterministic engine and core rules covered; alternate rules, blockades, and complete long-game simulations remain |
-| Online multiplayer and invitations | 16/20 | Real independent clients, private invites, lobby, server dice/moves, reconnect, host migration; no public matchmaking, multi-instance persistence, or rematch |
-| AI, local play, and features | 6/10 | Local pass-and-play and heuristic AI; no deep search, profiles, statistics, or public queue |
-| Responsive design and mobile usability | 8/10 | Desktop and 390px mobile browser smoke test; tablet/landscape and assistive-technology testing incomplete |
-| Performance, reliability, and security | 7/10 | No-dependency server, secure randomness, validation, basic rate limits; single-process JSON storage and no production TLS/DB hardening |
-| Code quality, accessibility, and testing | 8/10 | Modular engine/server/client, docs, 15 tests, keyboard-operable moves; broader E2E, screen-reader, and load tests remain |
-| Total | 77/100 | 7.7/10 |
+| Visual design and product experience | 18/20 | Cohesive visual system, original SVG board, real dialogs, motion, podium, responsive layout; no customization studio |
+| Rules and gameplay correctness | 18/20 | Deterministic engine, correct six handling, capture bonus, home-lane bonus move, auto-play, long games with a finishing order, forfeits, standings; alternate rules and blockades remain |
+| Online multiplayer and invitations | 18/20 | Two real browsers, readable codes, lobby, ready/rename/remove, server dice and moves, reconnect with backoff, rematch; no public matchmaking or multi-instance persistence |
+| AI, local play, and features | 9/10 | Three difficulty tiers with distinct behaviour, named seats, pass-and-play, bonus turns, auto-play, confetti and a local profile card; no deep search and no cross-device profile |
+| Responsive design and mobile usability | 9/10 | Desktop, laptop, wide and 390px mobile verified in-browser; tablet and landscape untested |
+| Performance, reliability, and security | 8/10 | No-dependency server, secure randomness, strict CSP, validation, rate limits, auto-reconnect; single-process JSON storage and no production TLS/DB hardening |
+| Code quality, accessibility, and testing | 9/10 | Modular engine/server/client, live-region and focus handling, 52 unit tests plus 94 browser checks; screen-reader testing and load tests remain |
+| Total | 88/100 | 8.8/10 |
 
 ## Final verdict
-Passes the requested 7.0 threshold as an early playable MVP, not as the entire product vision. The core private-room multiplayer flow is real and independently tested against the server. This build should not be described as a finished public gaming service until persistence, operational security, public matchmaking, account/profile features, and the remaining UX scope are implemented.
+Passes the requested threshold with room to spare as a polished, independently verified MVP. The table now reads clearly at a glance — the die shows whose turn it is, the board frames the player on turn, and the rules reward a good capture or a well-timed home entry. The profile card gives the game a memory without giving up a byte of privacy. The private-room multiplayer flow is real and now provably works end to end in two separate browsers against a live server — which it did not before this pass. This should still not be described as a finished public gaming service until persistence at scale, operational security, public matchmaking, and account features are implemented.

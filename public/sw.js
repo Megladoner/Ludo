@@ -1,6 +1,6 @@
 'use strict';
-const CACHE = 'parcheesi-shell-v1';
-const ASSETS = ['/', '/styles.css', '/app.js', '/engine.js', '/manifest.webmanifest', '/icon.svg'];
+const CACHE = 'parcheesi-shell-v4';
+const ASSETS = ['/', '/styles.css', '/app.js', '/boot.js', '/profile.js', '/engine.js', '/manifest.webmanifest', '/icon.svg'];
 self.addEventListener('install', (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(ASSETS))));
 self.addEventListener('activate', (event) => event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))));
 self.addEventListener('fetch', (event) => {
