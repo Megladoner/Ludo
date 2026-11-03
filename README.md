@@ -1,34 +1,48 @@
 # PARCHEESI
 
-A premium, mobile-first Ludo platform with a deterministic rules engine, local play, AI opponents, private rooms, and real-time room synchronization.
+A mobile-first Ludo platform with local play, AI opponents, private multiplayer rooms, and real-time synchronization.
 
-## Requirements
-- Node.js 22+
-- No npm dependencies are required.
+## Deploy to Cloudflare Workers (GitHub-connected)
 
-## Start locally
+This repository is preconfigured for Cloudflare Workers. It serves the PWA from Workers Static Assets and runs multiplayer rooms on a Durable Object with persistent SQLite storage.
+
+1. In Cloudflare, open **Workers & Pages** → **Create application** → **GitHub**.
+2. Connect your GitHub account and select **Megladoner/Ludo**.
+3. Set the Worker name to **parcheesi** (it must match `wrangler.jsonc`).
+4. Set the production branch to **main**.
+5. Leave the root directory as `/`.
+6. Build command: leave blank. Deploy command: `npx wrangler deploy`.
+7. Select **Save and Deploy**. Cloudflare will create the Durable Object SQLite namespace from the migration and publish the Worker.
+8. Open the `workers.dev` URL shown by Cloudflare.
+
+No environment variables, API keys, or manually created databases are required. Future pushes to `main` automatically trigger a new deployment.
+
+## What works on the hosted URL
+
+- Main game page and PWA assets
+- Local pass-and-play (2–4 players)
+- Solo play against AI
+- Private multiplayer rooms (2–4 players)
+- Invite links, ready lobby, server-generated dice and server-validated moves
+- Reconnection using the seat token stored in that browser
+- Live room snapshots and in-room chat
+- Room persistence in Durable Object storage
+
+The room database starts empty on the first Cloudflare deployment. Existing Node-hosted room links and reconnect tokens are not imported.
+
+## Run locally with Node.js
+
+Requires Node.js 22+.
+
 ```bash
-node src/server/index.js
-```
-Open `http://localhost:3000`. Pass-and-play supports 2–4 local players; private online rooms support 2–4 seats. To test online play, open the same invitation URL in two independent browser profiles/devices.
-
-## Verify
-```bash
-node --check src/server/index.js
-node --check src/server/rooms.js
-node --check src/server/websocket.js
-node --check src/engine/ludo.js
+npm install
 npm run check
 npm test
+npm start
 ```
 
-## Environment
-Copy `.env.example` to `.env` and configure `HOST`, `PORT`, `PUBLIC_URL`, `ROOM_TTL_HOURS`, `RECONNECT_GRACE_SECONDS`, and `TRUST_PROXY` (only behind a trusted proxy that overwrites `X-Forwarded-For`). The current built-in server does not load `.env` automatically; export variables in the shell or use your process manager.
+The Node server uses `src/server/` and persists room data in `data/rooms.json`. It is independent from Cloudflare's Durable Object room store.
 
-## Architecture and deployment
-See [ARCHITECTURE.md](ARCHITECTURE.md), [deployment](docs/DEPLOYMENT.md), [protocol/API](docs/API.md), [security notes](docs/SECURITY.md), and [quality report](docs/QUALITY_REPORT.md). This baseline is a single-process Node service with local JSON persistence and a built-in WebSocket implementation. Put it behind HTTPS with WebSocket upgrade support for production. Do not horizontally scale without replacing local room persistence with a shared transactional store and adding pub/sub coordination.
+## Scope
 
-## Current scope
-Implemented in this baseline: four-player standard rules engine, responsive board UI, 2–4-player local pass-and-play, heuristic AI opponents, private room creation/joining, shareable invitation URLs, ready lobby, server-generated dice, server-validated moves, reconnect-by-seat-token, room snapshots, basic chat, PWA shell, offline asset caching, and tests.
-
-Not yet implemented: public matchmaking, accounts, PostgreSQL/Redis, QR invites, alternate rulesets, adjustable AI difficulty/deep search, sound effects, token/dice customization, full rematch flow, persistent player profiles, full game replay, deployment automation, and multi-instance scaling. Browser autoplay restrictions apply to any future sound feature.
+Not yet implemented: public matchmaking, accounts, QR invites, alternate rulesets, adjustable AI difficulty/deep search, sound effects, token/dice customization, full rematch flow, persistent player profiles, and full game replay.

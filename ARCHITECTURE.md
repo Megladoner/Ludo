@@ -1,23 +1,24 @@
-# PARCHEESI — Architecture (environment-constrained baseline)
+# PARCHEESI — Architecture
 
-## Decision
-The supplied environment has Node.js 22.16.0 and Chromium/Playwright, but no npm cache, database CLI, or DNS/network access to the npm registry. To keep the deliverable runnable and testable here, the first implementation uses Node.js built-ins only: a static PWA frontend, an HTTP API, a small RFC 6455 WebSocket server, and a shared deterministic game engine. This is an explicit deviation from the preferred Next.js/React/Socket.IO/PostgreSQL stack, not a claim that those services are installed.
+## Shared game engine
+- `src/engine/ludo.js`: deterministic game rules and AI heuristics.
+- `public/engine.js`: browser-served copy of the shared engine. CI verifies it stays byte-for-byte synchronized with the source.
+- `public/`: responsive PWA frontend, manifest, styles, icons, and offline shell.
 
-## Components
-- `src/engine/`: pure deterministic rules, board coordinate model, legal action generation, AI heuristics.
-- `src/server/`: HTTP routes, WebSocket framing/protocol, room lifecycle, authoritative action handling, persistence.
-- `public/`: responsive app, SVG board renderer, PWA manifest/service worker.
-- `tests/`: Node built-in test runner tests for rules and multiplayer protocol.
-- `data/`: runtime room snapshots (not committed).
+## Cloudflare deployment
+- `src/worker/index.js`: Cloudflare Worker entry point and Durable Object RoomHub.
+- `wrangler.jsonc`: static assets, Worker entry point, Durable Object binding, and SQLite migration.
+- Workers Static Assets serves the frontend. SPA fallback supports direct opening of invitation URLs such as `/room/:invite`.
+- The Worker handles `/health`, `/api/config`, and WebSocket upgrades at `/ws`.
+- RoomHub is the authoritative multiplayer coordinator. It validates room membership, lobby readiness, host actions, turn ownership, and moves; generates dice server-side; persists room snapshots in Durable Object SQLite storage; and broadcasts updates.
+- WebSocket attachments associate live connections with their room/player, including across Durable Object hibernation.
 
-## Authority and protocol
-Clients send intents only (`room.join`, `lobby.ready`, `game.roll`, `game.move`, `game.state`). The server authenticates each socket against an unguessable seat token, validates room membership/turn/action, generates dice using `crypto.randomInt`, applies the pure engine, increments a monotonic sequence, persists state, and broadcasts authoritative snapshots/events. Reconnect uses the seat token and a full state snapshot. Invitation tokens are independent of internal room IDs.
+## Node self-hosting
+- `src/server/`: conventional HTTP routes, WebSocket framing, room lifecycle, and local JSON persistence.
+- `data/`: runtime JSON room snapshots for the Node server only.
+- `Dockerfile`: container build for a persistent Node host.
 
-## Initial limitations
-- Single-process deployment; room snapshots are atomically written to local JSON files. Horizontal scaling requires a shared transactional store and pub/sub adapter.
-- No external SQL/Redis service is available. No account system, public matchmaking, QR code, or hosted deployment is claimed in this baseline.
-- Standard four-player rules are implemented; alternate player counts and rule profiles are deferred.
-- The board uses a canonical 52-cell perimeter route and player-specific six-cell home lanes exported by the shared rules engine; the SVG renderer consumes those same coordinate arrays. The rules engine is independent of SVG rendering.
-
-## Run
-`npm` is not required: `node src/server/index.js`, `node --test`, and `node --check src/server/index.js`.
+## Deployment characteristics
+- Cloudflare initially uses one globally named RoomHub Durable Object. It is persistent but not yet sharded per room.
+- The encrypted Node backup is not imported by Cloudflare. The Cloudflare room store starts empty.
+- Node and Cloudflare deployments have separate room stores and do not synchronize.

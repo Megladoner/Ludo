@@ -50,11 +50,19 @@ export class RoomHub {
   }
   async restore() {
     const stored = await this.ctx.storage.list({ prefix: "room:" });
+    const liveSeats = new Set();
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = ws.deserializeAttachment();
+      if (attachment?.invite && attachment?.playerId) {
+        liveSeats.add(attachment.invite + ":" + attachment.playerId);
+      }
+    }
     for (const [key, room] of stored) {
       room.peers = new Map();
       for (const player of room.players) {
-        player.connected = false;
-        player.disconnectedAt = Date.now();
+        player.connected = liveSeats.has(room.invite + ":" + player.id);
+        if (!player.connected && !player.disconnectedAt) player.disconnectedAt = Date.now();
+        if (player.connected) player.disconnectedAt = null;
       }
       this.rooms.set(key.slice(5), room);
     }
