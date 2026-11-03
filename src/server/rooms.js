@@ -20,7 +20,7 @@ function inviteCode(length = 8) {
 function normalizeInvite(value) {
   return String(value || '').toUpperCase().split('').filter((ch) => CODE_ALPHABET.includes(ch)).join('');
 }
-function safeRoom(room) { return { invite: room.invite, status: room.status, host: room.host, createdAt: room.createdAt, players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color, ready: p.ready, connected: p.connected, host: p.id === room.host })), state: room.state, sequence: room.sequence }; }
+function safeRoom(room) { return { invite: room.invite, status: room.status, host: room.host, createdAt: room.createdAt, voiceEnabled: !!room.voiceEnabled, players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color, ready: p.ready, connected: p.connected, host: p.id === room.host })), state: room.state, sequence: room.sequence }; }
 function persist() { fs.mkdirSync(DATA_DIR, { recursive: true }); const serializable = [...rooms.values()].map(r => ({ ...r, peers: undefined })); const tmp = ROOM_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(serializable)); fs.renameSync(tmp, ROOM_FILE); }
 function restore() { try { const data = JSON.parse(fs.readFileSync(ROOM_FILE, 'utf8')); for (const r of data) { r.peers = new Map(); for (const player of r.players) { player.connected = false; player.disconnectedAt = Date.now(); } rooms.set(r.invite, r); } } catch {} }
 function emit(room, message) { for (const peer of room.peers.values()) peer.send({ sequence: room.sequence, ...message }); }
@@ -31,9 +31,9 @@ function cleanName(value) {
   const printable = String(value || 'Player').split('').filter((ch) => { const code = ch.codePointAt(0); return code > 31 && code !== 127; }).join('');
   return printable.replace(/[<>]/g, '').trim().slice(0, 20) || 'Player';
 }
-function createRoom(peer, name) {
+function createRoom(peer, name, voiceEnabled = false) {
   const invite = inviteCode(8), playerToken = token(24), id = crypto.randomUUID();
-  const room = { id, invite, host: id, status: 'lobby', createdAt: Date.now(), updatedAt: Date.now(), players: [{ id, token: playerToken, name: cleanName(name), color: 'red', ready: true, connected: true, disconnectedAt: null }], state: null, sequence: 0, peers: new Map() };
+  const room = { id, invite, host: id, status: 'lobby', voiceEnabled: !!voiceEnabled, createdAt: Date.now(), updatedAt: Date.now(), players: [{ id, token: playerToken, name: cleanName(name), color: 'red', ready: true, connected: true, disconnectedAt: null }], state: null, sequence: 0, peers: new Map() };
   rooms.set(invite, room); attach(room, room.players[0], peer); migrateHost(room); persist();
   peer.send({ type: 'room.created', sequence: room.sequence, invite, playerToken, playerColor: room.players[0].color, room: safeRoom(room) });
 }
@@ -52,9 +52,20 @@ function handle(peer, msg) {
     if (now - rate.start > 10_000) { rate.start = now; rate.count = 0; } rate.count++; eventRates.set(peer, rate);
     if (rate.count > 50) throw new Error('Too many actions. Please slow down.');
     if (!msg || typeof msg.type !== 'string') throw new Error('Invalid message');
-    if (msg.type === 'room.create') return createRoom(peer, msg.name);
+    if (msg.type === 'room.create') return createRoom(peer, msg.name, msg.voiceEnabled === true);
     if (msg.type === 'room.join') return joinRoom(peer, msg.invite, msg.playerToken, msg.name);
     const { room, player } = playerContext(peer);
+    if (msg.type === 'voice.signal') {
+      if (!room.voiceEnabled) throw new Error('Voice chat is disabled for this room');
+      if (!['offer', 'answer', 'candidate'].includes(msg.data?.type)) throw new Error('Invalid voice signal');
+      if (typeof msg.targetId !== 'string' || msg.targetId === player.id) throw new Error('Invalid voice recipient');
+      if (JSON.stringify(msg.data).length > 16000) throw new Error('Voice signal is too large');
+      const target = room.players.find(p => p.id === msg.targetId);
+      if (!target) throw new Error('Voice recipient is not in this room');
+      const targetPeer = room.peers.get(target.id);
+      if (targetPeer) targetPeer.send({ type: 'voice.signal', fromId: player.id, data: msg.data });
+      return;
+    }
     if (msg.type === 'lobby.ready') { if (room.status !== 'lobby') throw new Error('Lobby is closed'); player.ready = !!msg.ready; room.sequence++; }
     else if (msg.type === 'lobby.rename') { const next = cleanName(msg.name); if (!next) throw new Error('Name cannot be empty'); player.name = next; room.sequence++; }
     else if (msg.type === 'lobby.kick') {
