@@ -1,10 +1,15 @@
 'use strict';
 
 const PLAYER_IDS = ['red', 'green', 'yellow', 'blue'];
-const START_OFFSETS = { red: 48, green: 9, yellow: 22, blue: 35 };
-const SAFE_TRACK = new Set([0, 8, 9, 13, 21, 22, 26, 34, 35, 39, 47, 48]);
-const TRACK_COORDS = (() => { const cells = []; for (let x = 1; x <= 13; x++) cells.push([x, 0]); for (let y = 1; y <= 13; y++) cells.push([14, y]); for (let x = 13; x >= 1; x--) cells.push([x, 14]); for (let y = 13; y >= 1; y--) cells.push([0, y]); return cells; })();
-const HOME_COORDS = { red: [[1,6],[2,6],[3,6],[4,6],[5,6],[6,6]], green: [[8,1],[8,2],[8,3],[8,4],[8,5],[8,6]], yellow: [[13,8],[12,8],[11,8],[10,8],[9,8],[8,8]], blue: [[6,13],[6,12],[6,11],[6,10],[6,9],[6,8]] };
+const START_OFFSETS = { red: 0, green: 13, yellow: 26, blue: 39 };
+const SAFE_TRACK = new Set([0, 8, 13, 21, 26, 34, 39, 47]);
+// Classic cross-shaped board on a 15x15 grid (cells 0..14). 52 shared track cells, clockwise from red's start square.
+const TRACK_COORDS = (() => { const cells = []; const run = (x, y, dx, dy, n) => { for (let i = 0; i < n; i++) cells.push([x + dx * i, y + dy * i]); };
+  run(1, 6, 1, 0, 5); run(6, 5, 0, -1, 6); run(7, 0, 1, 0, 2); run(8, 1, 0, 1, 5);
+  run(9, 6, 1, 0, 6); run(14, 7, 0, 1, 2); run(13, 8, -1, 0, 5); run(8, 9, 0, 1, 6);
+  run(7, 14, -1, 0, 2); run(6, 13, 0, -1, 5); run(5, 8, -1, 0, 6); run(0, 7, 0, -1, 2);
+  return cells; })();
+const HOME_COORDS = { red: [[1,7],[2,7],[3,7],[4,7],[5,7],[6,7]], green: [[7,1],[7,2],[7,3],[7,4],[7,5],[7,6]], yellow: [[13,7],[12,7],[11,7],[10,7],[9,7],[8,7]], blue: [[7,13],[7,12],[7,11],[7,10],[7,9],[7,8]] };
 const TOKENS_PER_PLAYER = 4;
 const HOME_ENTRY_PROGRESS = 51;
 const FINISH_PROGRESS = 57;
