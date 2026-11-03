@@ -864,7 +864,7 @@ function describeHistory(entry, game) {
       if (entry.completedPlayer) return `${name} brought every token home.`;
       return `${name} moved token ${entry.token + 1}.`;
     }
-    case 'three-sixes-penalty': return `${name} rolled three sixes and lost the turn.`;
+    case 'three-sixes-penalty': return `${name} rolled three sixes — the turn is cancelled and the tokens go back.`;
     case 'no-move': return `${name} rolled a ${entry.roll} but had no legal move.`;
     default: return `${name} played.`;
   }
@@ -901,11 +901,11 @@ function renderGame() {
 
   const mine = state.local ? player.kind === 'human' : player.id === state.color;
   $('roll-dice').disabled = !mine || game.awaitingMove || over;
-  const legalNow = !over && game.awaitingMove ? E.legalMoves(game) : [];
+  const playsItself = !over && game.awaitingMove && E.autoMoveToken(game) !== null;
   $('move-hint').textContent = over
     ? 'Nicely played.'
     : game.awaitingMove
-      ? (legalNow.length === 1 ? 'Playing itself.' : 'Select a highlighted token.')
+      ? (playsItself ? 'Playing itself.' : 'Select a highlighted token.')
       : mine ? 'Your turn. Give it a roll.' : player.name + ' is thinking…';
 
   $('game-players').innerHTML = game.players.map((entry) => {

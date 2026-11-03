@@ -137,7 +137,7 @@ with sync_playwright() as p:
     check("the turn passed after the automatic move",
           page.evaluate("() => state.game.currentPlayer") == 1)
 
-    # A six must not ask the player to choose when only one token is out.
+    # --- 3b. A six with a token left in the box is a real choice ----------
     page.evaluate("""() => {
       const g = LudoEngine.initialState({players:['red','green'], names:{red:'Aria',green:'Bo'}});
       g.players[0].tokens = [-1, 6, -1, -1];
@@ -145,14 +145,82 @@ with sync_playwright() as p:
       window.__rand = Math.random; Math.random = () => 0.99;
     }""")
     page.click("#roll-dice")
-    page.wait_for_timeout(1500)
+    page.wait_for_timeout(1200)
     tokens = page.evaluate("() => state.game.players[0].tokens.slice()")
-    check("a six does not interrupt a lone token", tokens[1] == 12, str(tokens))
-    check("no second token was released", sum(1 for t in tokens if t >= 0) == 1, str(tokens))
-    check("the table never asked the player to choose",
-          page.evaluate("() => state.game.players[0].tokens[1]") == 12
-          and page.evaluate("() => state.game.awaitingMove") is False,
-          str(page.evaluate("() => state.game.awaitingMove")))
+    check("a six does not move the lone token by itself", tokens[1] == 6, str(tokens))
+    check("the table asks the player to choose",
+          page.locator("#game-board .hit").count() == 4,
+          str(page.locator("#game-board .hit").count()))
+    page.locator('#game-board .hit[data-token="1"]').click()
+    page.wait_for_timeout(700)
+    check("the board token moved when the player chose it",
+          page.evaluate("() => state.game.players[0].tokens[1]") == 12)
+
+    # The same six, but the player picks a token from the box instead.
+    page.evaluate("""() => {
+      const g = LudoEngine.initialState({players:['red','green'], names:{red:'Aria',green:'Bo'}});
+      g.players[0].tokens = [-1, 6, -1, -1];
+      state.game = g; state.local = true; renderGame(); view('game-view');
+      window.__rand = Math.random; Math.random = () => 0.99;
+    }""")
+    page.click("#roll-dice")
+    page.wait_for_timeout(1200)
+    page.locator('#game-board .hit[data-token="2"]').click()
+    page.wait_for_timeout(700)
+    tokens = page.evaluate("() => state.game.players[0].tokens.slice()")
+    check("a token can be brought out of the box on a six", tokens[2] == 0, str(tokens))
+    check("the token already on the board did not move", tokens[1] == 6, str(tokens))
+
+    # A six with nothing on the board asks the player to pick a token.
+    page.evaluate("""() => {
+      const g = LudoEngine.initialState({players:['red','green'], names:{red:'Aria',green:'Bo'}});
+      g.players[0].tokens = [-1, -1, -1, -1];
+      state.game = g; state.local = true; renderGame(); view('game-view');
+      window.__rand = Math.random; Math.random = () => 0.99;
+    }""")
+    page.click("#roll-dice")
+    page.wait_for_timeout(1200)
+    check("a six with an empty board asks the player to choose",
+          page.locator("#game-board .hit").count() == 4,
+          str(page.locator("#game-board .hit").count()))
+    page.locator('#game-board .hit[data-token="3"]').click()
+    page.wait_for_timeout(700)
+    check("the chosen token came out on the start square",
+          page.evaluate("() => state.game.players[0].tokens[3]") == 0)
+
+    # A six with no token left in the box moves the lone token by itself.
+    page.evaluate("""() => {
+      const g = LudoEngine.initialState({players:['red','green'], names:{red:'Aria',green:'Bo'}});
+      g.players[0].tokens = [6, 57, 57, 57];
+      state.game = g; state.local = true; renderGame(); view('game-view');
+      window.__rand = Math.random; Math.random = () => 0.99;
+    }""")
+    page.click("#roll-dice")
+    page.wait_for_timeout(1500)
+    check("a six with an empty box moves the lone token",
+          page.evaluate("() => state.game.players[0].tokens[0]") == 12)
+
+    # --- 3c. The shipped engine follows the new rules ----------------------
+    check("the shipped engine counts only tokens on the board",
+          page.evaluate("""() => {
+            const g = LudoEngine.initialState({players:['red','green']});
+            g.players[0].tokens = [-1, 57, -1, 10];
+            return JSON.stringify(LudoEngine.activeTokens(g.players[0])) === '[3]';
+          }"""))
+    check("the shipped engine never deploys a token on its own",
+          page.evaluate("""() => {
+            const g = LudoEngine.initialState({players:['red','green']});
+            g.players[0].tokens = [-1, -1, -1, -1];
+            g.dice = 6; g.awaitingMove = true;
+            return LudoEngine.autoMoveToken(g) === null;
+          }"""))
+    check("the shipped engine brings automatic movement back after a capture",
+          page.evaluate("""() => {
+            const g = LudoEngine.initialState({players:['red','green']});
+            g.players[1].tokens = [28, -1, -1, -1];
+            g.currentPlayer = 1; g.dice = 3; g.awaitingMove = true;
+            return LudoEngine.autoMoveToken(g) === 0;
+          }"""))
 
     # --- 4. Manual play returns when more than one token is out -----------
     page.evaluate("""() => {
@@ -185,10 +253,11 @@ with sync_playwright() as p:
     check("the turn passes after the lane entry",
           page.evaluate("() => state.game.currentPlayer") == 1)
 
-    # A six must not carry the token past the lane entry either.
+    # A six must not carry the token past the lane entry either. With no token
+    # left in the box the lone token moves by itself.
     page.evaluate("""() => {
       const g = LudoEngine.initialState({players:['red','green'], names:{red:'Aria',green:'Bo'}});
-      g.players[0].tokens = [45, -1, -1, -1];
+      g.players[0].tokens = [45, 57, 57, 57];
       state.game = g; state.local = true; renderGame(); view('game-view');
       window.__rand = Math.random; Math.random = () => 0.99;
     }""")
@@ -196,6 +265,20 @@ with sync_playwright() as p:
     page.wait_for_timeout(1600)
     jumped = page.evaluate("() => state.game.players[0].tokens[0]")
     check("a six does not leap past the lane entry", jumped == 51, str(jumped))
+
+    # With a token still in the box the same six is a question, not a move.
+    page.evaluate("""() => {
+      const g = LudoEngine.initialState({players:['red','green'], names:{red:'Aria',green:'Bo'}});
+      g.players[0].tokens = [45, -1, -1, -1];
+      state.game = g; state.local = true; renderGame(); view('game-view');
+      window.__rand = Math.random; Math.random = () => 0.99;
+    }""")
+    page.click("#roll-dice")
+    page.wait_for_timeout(1400)
+    check("a six with a token in the box waits for the player",
+          page.evaluate("() => state.game.players[0].tokens[0]") == 45
+          and page.locator("#game-board .hit").count() == 4,
+          str(page.evaluate("() => state.game.players[0].tokens[0]")))
 
     # --- 5b. The home triangle earns one more move ------------------------
     page.evaluate("""() => {
@@ -358,6 +441,37 @@ with sync_playwright() as p:
     check("a board redraw does not wipe the chat",
           "Good luck, everyone" in page.inner_text("#chat-list"))
     check("the chat has its own panel", page.locator("#chat-list").count() == 1)
+
+    # --- 13. Three sixes in a row put the tokens back --------------------
+    page.evaluate("""() => {
+      const g = LudoEngine.initialState({players:['red','green'], names:{red:'Aria',green:'Bo'}});
+      g.players[0].tokens = [-1, -1, -1, -1];
+      state.game = g; state.local = true; renderGame(); view('game-view');
+      window.__rand = Math.random; Math.random = () => 0.99;
+    }""")
+    page.click("#roll-dice")
+    page.wait_for_timeout(1200)
+    page.locator('#game-board .hit[data-token="0"]').click()
+    page.wait_for_timeout(700)
+    check("a token came out on the first six",
+          page.evaluate("() => state.game.players[0].tokens[0]") == 0)
+    page.click("#roll-dice")
+    page.wait_for_timeout(1200)
+    page.locator('#game-board .hit[data-token="0"]').click()
+    page.wait_for_timeout(700)
+    check("the token moved on the second six",
+          page.evaluate("() => state.game.players[0].tokens[0]") == 6)
+    page.click("#roll-dice")
+    page.wait_for_timeout(1400)
+    check("the token is back in the starting box",
+          page.evaluate("() => state.game.players[0].tokens[0]") == -1,
+          str(page.evaluate("() => state.game.players[0].tokens.slice()")))
+    check("the turn passed to the next player",
+          page.evaluate("() => state.game.currentPlayer") == 1,
+          str(page.evaluate("() => state.game.currentPlayer")))
+    check("the penalty is on the record",
+          "three sixes" in page.inner_text("#activity-list").lower(),
+          page.inner_text("#activity-list")[-120:])
 
     check("no uncaught page errors", not errors, "; ".join(errors[:3]))
     browser.close()

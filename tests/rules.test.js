@@ -102,7 +102,7 @@ test('an ordinary move passes the turn', () => {
   state = pending(state, 0, 2);
   const next = E.applyMove(state, 0);
   assert.equal(next.currentPlayer, 1);
-  assert.equal(next.bonusToken, null);
+  assert.equal(next.sixStreak, null);
 });
 
 test('a six still earns another roll', () => {
@@ -171,22 +171,53 @@ test('a finished player is skipped when the turn cycles', () => {
 
 // --- Auto play --------------------------------------------------------------
 
-test('a single token in play is played automatically', () => {
+test('one token on the board is played automatically', () => {
   let state = E.initialState({ players: ['red', 'green'] });
   state.players[0].tokens = [10, -1, -1, -1];
   state = pending(state, 0, 3);
-  assert.equal(E.autoMoveToken(state), 0, 'the only token moves itself');
+  assert.equal(E.autoMoveToken(state), 0, 'the only token on the board moves itself');
+  assert.deepEqual(E.legalMoves(state), [0]);
 });
 
-test('a single token in play takes the roll even on a six', () => {
+test('one token on the board takes the roll whatever it says', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [10, -1, -1, -1];
+  state = pending(state, 0, 5);
+  assert.equal(E.autoMoveToken(state), 0);
+});
+
+test('two tokens on the board are never moved automatically', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [10, 12, -1, -1];
+  state = pending(state, 0, 1);
+  assert.equal(E.autoMoveToken(state), null, 'the player chooses');
+  assert.deepEqual(E.legalMoves(state), [0, 1]);
+});
+
+test('a six with a token in the box is a choice, not an automatic move', () => {
   let state = E.initialState({ players: ['red', 'green'] });
   state.players[0].tokens = [10, -1, -1, -1];
   state = pending(state, 0, 6);
-  assert.equal(E.autoMoveToken(state), 0, 'the committed token moves, not a new one');
-  assert.deepEqual(E.legalMoves(state), [0], 'nothing else may move');
+  assert.equal(E.autoMoveToken(state), null, 'the player chooses between deploying and moving');
+  assert.deepEqual(E.legalMoves(state), [0, 1, 2, 3], 'the board token and the box are all on offer');
 });
 
-test('a single token that cannot take the roll ends the turn', () => {
+test('a six with no token in the box moves the lone token', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [10, 57, 57, 57];
+  state = pending(state, 0, 6);
+  assert.equal(E.autoMoveToken(state), 0, 'there is nothing to deploy, so it moves itself');
+});
+
+test('a six with nothing on the board waits for the player', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [-1, -1, -1, -1];
+  state = pending(state, 0, 6);
+  assert.equal(E.autoMoveToken(state), null, 'a six never deploys a token by itself');
+  assert.deepEqual(E.legalMoves(state), [0, 1, 2, 3], 'the player picks the token to bring out');
+});
+
+test('a lone token that cannot take the roll ends the turn', () => {
   let state = E.initialState({ players: ['red', 'green'] });
   state.players[0].tokens = [56, -1, -1, -1];
   assert.deepEqual(E.legalMoves(state, 5), [], 'the roll cannot be taken');
@@ -196,36 +227,46 @@ test('a single token that cannot take the roll ends the turn', () => {
   assert.equal(next.history.at(-1).type, 'no-move');
 });
 
-test('a six with nothing on the board brings a token out by itself', () => {
+test('a six never deploys a token by itself', () => {
   let state = E.initialState({ players: ['red', 'green'] });
   state.players[0].tokens = [-1, -1, -1, -1];
   state = pending(state, 0, 6);
-  assert.equal(E.autoMoveToken(state), 0, 'a token is released without asking');
-});
-
-test('auto play does not fire when several tokens are on the board', () => {
-  let state = E.initialState({ players: ['red', 'green'] });
-  state.players[0].tokens = [10, 12, -1, -1];
-  state = pending(state, 0, 1);
   assert.equal(E.autoMoveToken(state), null);
-  assert.equal(E.legalMoves(state).length, 2);
+  const next = E.applyMove(state, 0);
+  assert.equal(next.players[0].tokens[0], 0, 'the chosen token comes out on the start square');
 });
 
-test('auto play fires when several tokens are out but only one can move', () => {
-  let state = E.initialState({ players: ['red', 'green'] });
-  state.players[0].tokens = [10, 56, -1, -1];
-  state = pending(state, 0, 2);
-  assert.deepEqual(E.legalMoves(state), [0], 'the token at 56 cannot take a two');
-  assert.equal(E.autoMoveToken(state), 0);
-});
-
-test('tokens that are already home do not count as in play', () => {
+test('tokens already home do not count as tokens on the board', () => {
   let state = E.initialState({ players: ['red', 'green'] });
   state.players[0].tokens = [57, 57, 57, 10];
   assert.equal(E.inPlayCount(state.players[0]), 1);
-  assert.equal(E.committedToken(state.players[0]), 3);
+  assert.deepEqual(E.activeTokens(state.players[0]), [3]);
+  assert.deepEqual(E.boxedTokens(state.players[0]), []);
   state = pending(state, 0, 6);
   assert.equal(E.autoMoveToken(state), 3, 'the last token out moves, not a new one');
+});
+
+test('tokens in the starting box are not tokens on the board', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [-1, -1, -1, 10];
+  assert.equal(E.inPlayCount(state.players[0]), 1);
+  assert.deepEqual(E.activeTokens(state.players[0]), [3]);
+  assert.deepEqual(E.boxedTokens(state.players[0]), [0, 1, 2]);
+  state = pending(state, 0, 6);
+  assert.equal(E.autoMoveToken(state), null, 'a six offers the box as well, so the player chooses');
+});
+
+test('a capture brings automatic movement back for the opponent', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [0, -1, -1, -1];
+  state.players[1].tokens = [40, -1, -1, -1];
+  state = pending(state, 0, 1);
+  const next = E.applyMove(state, 0);
+  assert.equal(next.players[1].tokens[0], -1, 'the opponent was captured');
+  assert.equal(next.currentPlayer, 0, 'the capturer keeps the turn');
+  // Green now has nothing on the board, so a six is their choice, not an automatic deployment.
+  state = E.applyRoll(next, 6);
+  assert.equal(E.autoMoveToken(state), null);
 });
 
 test('auto play is silent when no move is pending', () => {
@@ -238,6 +279,89 @@ test('deployed tokens are counted correctly', () => {
   state.players[0].tokens = [-1, 5, 57, -1];
   assert.equal(E.deployedCount(state.players[0]), 2);
   assert.equal(E.inPlayCount(state.players[0]), 1, 'a token that is home is not in play');
+});
+
+// --- Three sixes in a row ---------------------------------------------------
+
+test('three sixes cancel the turn and send the deployed token back to the box', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [-1, -1, -1, -1];
+  state = E.applyRoll(state, 6);
+  state = E.applyMove(state, 0);
+  assert.equal(state.players[0].tokens[0], 0, 'a token came out on the six');
+  state = E.applyRoll(state, 6);
+  state = E.applyMove(state, 0);
+  assert.equal(state.players[0].tokens[0], 6);
+  state = E.applyRoll(state, 6);
+  assert.equal(state.players[0].tokens[0], -1, 'the token goes back to the starting box');
+  assert.equal(state.currentPlayer, 1, 'the turn passes to the next player');
+  assert.equal(state.history.at(-1).type, 'three-sixes-penalty');
+  assert.equal(state.awaitingMove, false);
+});
+
+test('three sixes put a moved token back exactly where it was', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [10, -1, -1, -1];
+  state = E.applyRoll(state, 6);
+  state = E.applyMove(state, 0);
+  assert.equal(state.players[0].tokens[0], 16);
+  state = E.applyRoll(state, 6);
+  state = E.applyMove(state, 0);
+  assert.equal(state.players[0].tokens[0], 22);
+  state = E.applyRoll(state, 6);
+  assert.equal(state.players[0].tokens[0], 10, 'back where it was before the run of sixes');
+});
+
+test('the rollback only undoes the run of sixes', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [10, -1, -1, -1];
+  state = pending(state, 0, 2);
+  state = E.applyMove(state, 0);
+  assert.equal(state.players[0].tokens[0], 12, 'an ordinary move before the run of sixes');
+  state = E.applyRoll(state, 6);
+  state = E.applyMove(state, 0);
+  state = E.applyRoll(state, 6);
+  state = E.applyMove(state, 0);
+  state = E.applyRoll(state, 6);
+  assert.equal(state.players[0].tokens[0], 12, 'the earlier move is untouched');
+});
+
+test('a capture made during a run of sixes is undone', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [35, -1, -1, -1];
+  state.players[1].tokens = [28, -1, -1, -1];
+  state = E.applyRoll(state, 6);
+  state = E.applyMove(state, 0);
+  assert.equal(state.players[1].tokens[0], -1, 'green was captured');
+  assert.equal(state.players[0].captures, 1);
+  state = E.applyRoll(state, 6);
+  state = E.applyMove(state, 0);
+  state = E.applyRoll(state, 6);
+  assert.equal(state.players[0].tokens[0], 35, 'red is back where it was');
+  assert.equal(state.players[1].tokens[0], 28, 'green is back on the board');
+  assert.equal(state.players[0].captures, 0, 'the capture never happened');
+});
+
+test('a run of sixes that is broken leaves the tokens where they are', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [10, -1, -1, -1];
+  state = E.applyRoll(state, 6);
+  state = E.applyMove(state, 0);
+  state = E.applyRoll(state, 2);
+  state = E.applyMove(state, 0);
+  assert.equal(state.players[0].tokens[0], 18, 'the six is not taken back');
+  assert.equal(state.consecutiveSixes, 0);
+});
+
+test('the six counter resets when the turn passes', () => {
+  let state = E.initialState({ players: ['red', 'green'] });
+  state.players[0].tokens = [10, -1, -1, -1];
+  state = E.applyRoll(state, 6);
+  state = E.applyMove(state, 0);
+  assert.equal(state.consecutiveSixes, 1);
+  state = E.applyRoll(state, 3);
+  assert.equal(state.consecutiveSixes, 0);
+  assert.equal(state.sixStreak, null);
 });
 
 // --- Forfeits ---------------------------------------------------------------

@@ -80,16 +80,27 @@ Chat messages were pushed into the same list the board story is drawn into, and 
 
 **Verification.** 56 unit tests, stable across repeated runs. A 32-check interface suite, a 55-check feature suite and a 22-check two-browser multiplayer suite — 109 browser checks — drive the real application against the real server over a real WebSocket. Every bug above has a check that fails if it comes back.
 
+## Cycle 7 — The rules, put right
+A pass over one thing only: what the table does with a roll. The interface was already approved and was not touched.
+
+**The fault.** The engine held a "committed roll": when a player had exactly one token on the board, `legalMoves` filtered every other choice out and `autoMoveToken` moved that token whatever the die said. A six therefore could never offer the tokens still in the box, and a six on an empty board silently deployed one. The table was making the player's decision for them, and it was making it in the wrong place.
+
+**What it is now.** A token on the board plays itself only when it is the only token there *and* nothing is left in the box. Two or more tokens on the board always ask. A six that could still deploy a token always asks, because "bring a token out" and "move the token you have" are two different answers and only the player knows which one they meant. A six with an empty board asks which token should come out. A six never deploys a token by itself, and a choice is never made for the player when more than one move is on the table. Tokens in the starting box and tokens that have reached the home triangle do not count as tokens on the board. The count is taken from the current position every time, so a capture hands the decision back to the opponent who just lost a token.
+
+**Three sixes now cost the tokens too.** The third six used to cancel the turn and leave the moves from the first two sixes standing. The table is now snapshotted when a run of sixes starts: a token brought out during the run returns to the box, a token that was moved returns to its exact square, and a capture made during the run never happened. Only that run is undone — the turn simply passes. The snapshot lives in the game state, so the server and every client roll back the same way.
+
+**Verification.** 66 unit tests, stable across repeated runs, with a case for every rule above and for the rollback. A 33-check interface suite, a 69-check feature suite and a 22-check two-browser multiplayer suite — 124 browser checks — drive the real application against the real server over a real WebSocket. The feature suite now proves in the browser that a six asks instead of moving, that the answer can be either one, and that three sixes put the token back.
+
 ## Weighted score
 | Category | Score | Evidence / remaining gap |
 |---|---:|---|
 | Visual design and product experience | 19/20 | A rebuilt parlour design system — brass on near-black, hairline borders, grain, serif display type, original SVG board, real dialogs, motion, podium, responsive layout; no customization studio |
-| Rules and gameplay correctness | 19/20 | Deterministic engine, committed single-token rolls, capture bonus, a home lane that walks, the home-triangle bonus, long games with a finishing order, forfeits, standings; alternate rules and blockades remain |
+| Rules and gameplay correctness | 19/20 | Deterministic engine, a conditional single-token roll that never chooses for the player, a six that always asks when deploying and moving are both on offer, a three-sixes rollback, capture bonus, a home lane that walks, the home-triangle bonus, long games with a finishing order, forfeits, standings; alternate rules and blockades remain |
 | Online multiplayer and invitations | 19/20 | Two real browsers, readable codes, lobby, ready/rename/remove, server dice and moves, reconnect with backoff, automatic session resume across reloads, a readable chat, rematch; no public matchmaking or multi-instance persistence |
 | AI, local play, and features | 9/10 | Three difficulty tiers with distinct behaviour, named seats, pass-and-play, bonus turns, auto-play, confetti and a local profile card; no deep search and no cross-device profile |
 | Responsive design and mobile usability | 9/10 | Desktop, laptop, wide and 390px mobile verified in-browser; tablet and landscape untested |
 | Performance, reliability, and security | 8/10 | No-dependency server, secure randomness, strict CSP, validation, rate limits, auto-reconnect; single-process JSON storage and no production TLS/DB hardening |
-| Code quality, accessibility, and testing | 9/10 | Modular engine/server/client, live-region and focus handling, 56 unit tests plus 109 browser checks, one regression check per fixed bug; screen-reader testing and load tests remain |
+| Code quality, accessibility, and testing | 9/10 | Modular engine/server/client, live-region and focus handling, 66 unit tests plus 124 browser checks, one regression check per fixed bug; screen-reader testing and load tests remain |
 | Total | 91/100 | 9.1/10 |
 
 ## Final verdict

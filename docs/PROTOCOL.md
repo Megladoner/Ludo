@@ -15,7 +15,7 @@ Every server message carries a top-level `sequence`. It increases on every state
 | `lobby.kick` | `playerId` | Host only. Removes another player from the table. |
 | `lobby.start` | — | Host only. Requires at least two players, everyone ready. |
 | `game.roll` | — | Only valid on the player's turn. The server rolls the dice. |
-| `game.move` | `token` | Token index 0–3. Server-validated. When a player has only one token in play, only that token is accepted — the roll is committed to it. |
+| `game.move` | `token` | Token index 0–3. Server-validated. Any token the roll legally allows is accepted, including bringing a token out of the box on a six. |
 | `game.rematch` | — | Only valid once the game has finished. Returns the table to the lobby with everyone unready and clears the finishing order. |
 | `game.state` | — | Requests a fresh snapshot. |
 | `room.leave` | — | Releases the seat. The socket may be closed straight after. |
@@ -38,15 +38,17 @@ Every server message carries a top-level `sequence`. It increases on every state
 
 ## Game state
 
-The snapshot's `state` is the shared engine's state, version 3. Alongside the classic fields it carries:
+The snapshot's `state` is the shared engine's state, version 4. Alongside the classic fields it carries:
 
 | Field | Notes |
 | --- | --- |
 | `finishOrder` | Players who have brought all four tokens home, in the order they did it. Empty until somebody finishes. |
 | `lastFinish` | The player who finished most recently. |
-| `version` | The engine version (`3`). Clients ignore unknown fields, so old clients still parse new snapshots. |
+| `version` | The engine version (`4`). Clients ignore unknown fields, so old clients still parse new snapshots. |
 
 Version 3 replaced the version 2 `bonusToken` field. The home lane no longer grants a move, so there is nothing left to point at. A client that still sends it is simply ignored.
+
+Version 4 changes how a roll is applied, not how it is transmitted. It replaced the "committed roll" with a conditional one: a token on the board plays itself only when it is the only token on the board and nothing is left in the box. A six always offers the box alongside the board, so the player decides between deploying a token and moving one. Version 4 also added `sixStreak` — the snapshot of the table taken when a run of sixes starts, so the third six can put every token back where it was. The field is `null` whenever no run of sixes is in progress.
 
 A three- or four-player game is not over when the first player finishes: `status` stays `playing` until every player has finished, and the finishing order is what ranks the table. A two-player game ends at the first finisher as before.
 
