@@ -235,3 +235,28 @@ test('voice chat is opt-in per room and only relays connection messages to the r
   const own = await host.wait((m) => m.type === 'voice.state');
   assert.notEqual(own.from, hostId);
 });
+
+test('token colours are chosen per player, stay unique, and are locked once the game starts', async (t) => {
+  const port = 3193;
+  await startServer(t, port);
+  const host = await openClient(t, port);
+  const guest = await openClient(t, port);
+  host.send({ type: 'room.create', name: 'Amy', skin: 'purple' });
+  const created = await host.wait((m) => m.type === 'room.created');
+  assert.equal(created.room.players[0].skin, 'purple');
+  guest.send({ type: 'room.join', invite: created.invite, name: 'Bo', skin: 'purple' });
+  const joined = await guest.wait((m) => m.type === 'room.joined');
+  const guestSkin = joined.room.players[1].skin;
+  assert.notEqual(guestSkin, 'purple', 'a taken colour is never handed out twice');
+  guest.send({ type: 'lobby.skin', skin: 'purple' });
+  await guest.wait((m) => m.type === 'room.error');
+  guest.send({ type: 'lobby.skin', skin: 'teal' });
+  const snap = await host.wait((m) => m.type === 'room.snapshot' && m.room.players[1].skin === 'teal');
+  assert.equal(snap.room.players[1].color, 'green', 'the seat never changes with the colour');
+  guest.send({ type: 'lobby.ready', ready: true });
+  await host.wait((m) => m.type === 'room.snapshot' && m.room.players[1].ready);
+  host.send({ type: 'lobby.start' });
+  await host.wait((m) => m.type === 'game.started');
+  guest.send({ type: 'lobby.skin', skin: 'pink' });
+  await guest.wait((m) => m.type === 'room.error');
+});
