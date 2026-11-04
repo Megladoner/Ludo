@@ -91,36 +91,16 @@ A pass over one thing only: what the table does with a roll. The interface was a
 
 **Verification.** 66 unit tests, stable across repeated runs, with a case for every rule above and for the rollback. A 33-check interface suite, a 69-check feature suite and a 22-check two-browser multiplayer suite — 124 browser checks — drive the real application against the real server over a real WebSocket. The feature suite now proves in the browser that a six asks instead of moving, that the answer can be either one, and that three sixes put the token back.
 
-## Cycle 8 — Voice at the table
-A feature pass over the one thing a table of friends was missing.
-
-**What was added.** A microphone button in the top bar that appears once you are at a private table. Click it and the microphone opens; click again and it mutes. Hold **V** and the microphone opens for as long as the key is down, even when muted, so a table hears you only when you mean to speak. The table menu turns the voice off entirely. Beside every name a small marker shows who is talking, who has gone quiet, and who has left the voice.
-
-**How the audio travels.** Directly from one browser to the next, over WebRTC, encrypted end to end. The game server carries six small messages — hello, here, offer, answer, ice, state — and never a sound. The design point worth stating plainly: the project already had a server-authoritative room protocol and a strict CSP, and the voice feature deliberately reuses both rather than introducing a second service or a dependency.
-
-**The bugs found while building it.**
-- The offer could arrive before the microphone had finished opening, and was dropped on the floor. Every handshake now carries a session stamp, so a seat that reopens its microphone starts a clean line instead of inheriting a stale one.
-- Both browsers could offer at the same time. The seat earlier in the table opens the line, so the two always agree.
-- A seat that was not talking still answered the "who is here" message, which made the other browser offer into a closed microphone. Only a seat that is actually talking answers now.
-- The far end cannot hear whether a microphone is muted — the track stays live and simply carries silence. Each seat now announces its own microphone state, so the marker is honest.
-- The content-security policy did not allow the ICE servers, which would have blocked the browser from opening a direct line at all.
-
-**A second implementation arrived while this was being built.** A separate pass had already landed an optional room voice chat on the branch: a host switch that turns voice off for the table, lobby and game panels, animated speaking bars, and a STUN-only line. It was sound work, and two things in it were better than what this pass had, so they were kept: the host's switch (voice is on by default and can be turned off when the table is created) and its protocol tests, which were carried across to the new handshake. What was replaced was the transport underneath — STUN alone cannot connect players behind strict mobile or corporate networks, which is the one thing the free-allowance relay exists to solve. The switch, the doc and the coverage survive; the STUN-only limitation does not.
-
-**The relay, and the cost.** A direct line is enough for most networks. For the players behind awkward NATs, a TURN relay is needed — and Cloudflare's managed TURN carries a free allowance of 1,000 GB a month, around 71,000 relayed hours of voice. The deployment asks for a TURN key as a Worker secret; the key never reaches a browser, and the Worker mints a twelve-hour credential for each table that asks. Without the secret the table still works over free STUN. Nothing here can raise a bill.
-
-**Verification.** 83 unit tests and 151 browser checks, including a 27-check voice suite that opens a real peer connection between two browsers with a synthetic microphone — the connection reaches `connected`, the far end receives an unmuted audio track, speech is spotted, a mute travels, push to talk reopens the microphone, and leaving the voice closes the line.
-
 ## Weighted score
 | Category | Score | Evidence / remaining gap |
 |---|---:|---|
 | Visual design and product experience | 19/20 | A rebuilt parlour design system — brass on near-black, hairline borders, grain, serif display type, original SVG board, real dialogs, motion, podium, responsive layout; no customization studio |
 | Rules and gameplay correctness | 19/20 | Deterministic engine, a conditional single-token roll that never chooses for the player, a six that always asks when deploying and moving are both on offer, a three-sixes rollback, capture bonus, a home lane that walks, the home-triangle bonus, long games with a finishing order, forfeits, standings; alternate rules and blockades remain |
-| Online multiplayer and invitations | 19/20 | Two real browsers, readable codes, lobby, ready/rename/remove, server dice and moves, reconnect with backoff, automatic session resume across reloads, a readable chat, free peer-to-peer voice with push to talk, rematch; no public matchmaking or multi-instance persistence |
-| AI, local play, and features | 9/10 | Three difficulty tiers with distinct behaviour, named seats, pass-and-play, bonus turns, auto-play, confetti, a local profile card and free voice chat at the table; no deep search and no cross-device profile |
+| Online multiplayer and invitations | 19/20 | Two real browsers, readable codes, lobby, ready/rename/remove, server dice and moves, reconnect with backoff, automatic session resume across reloads, a readable chat, rematch; no public matchmaking or multi-instance persistence |
+| AI, local play, and features | 9/10 | Three difficulty tiers with distinct behaviour, named seats, pass-and-play, bonus turns, auto-play, confetti and a local profile card; no deep search and no cross-device profile |
 | Responsive design and mobile usability | 9/10 | Desktop, laptop, wide and 390px mobile verified in-browser; tablet and landscape untested |
 | Performance, reliability, and security | 8/10 | No-dependency server, secure randomness, strict CSP, validation, rate limits, auto-reconnect; single-process JSON storage and no production TLS/DB hardening |
-| Code quality, accessibility, and testing | 9/10 | Modular engine/server/client, live-region and focus handling, 83 unit tests plus 151 browser checks, one regression check per fixed bug; screen-reader testing and load tests remain |
+| Code quality, accessibility, and testing | 9/10 | Modular engine/server/client, live-region and focus handling, 66 unit tests plus 124 browser checks, one regression check per fixed bug; screen-reader testing and load tests remain |
 | Total | 91/100 | 9.1/10 |
 
 ## Final verdict

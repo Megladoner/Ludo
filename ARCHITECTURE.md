@@ -17,18 +17,8 @@
 - **Long games.** `checkGameEnd` ends a two-player game at the first finisher and a three- or four-player game only when everyone has finished. `advanceTurn` skips players who have already finished.
 - **Standings.** Finishers rank first in the order they finished; the rest rank by tokens home, then distance covered, then captures.
 
-## Voice chat
-- **Direct lines.** Audio travels peer to peer over WebRTC, encrypted end to end. The game server never carries a sound — it relays six small messages so two browsers can agree how to open a line.
-- **One offer per pair.** The seat earlier in the table opens the line, so the two browsers never offer at the same time. Every handshake carries a session stamp, so a seat that reopens its microphone starts a clean line instead of inheriting a stale one.
-- **Nothing is chosen for the player.** A six may still ask, and so does a microphone: the button opens it, `V` pushes to talk, and the table menu turns it off entirely.
-- **The relay is optional.** Without a TURN key the table connects directly over STUN, which is free and works for most networks. With a key configured, a Cloudflare TURN relay covers the awkward ones at no cost inside Cloudflare's 1,000 GB monthly allowance.
-- **The far end cannot hear a mute**, so each seat announces its own microphone state over the same handshake.
-
 ## Client architecture
 - `public/app.js`: the whole client — state, dialogs, network, rendering, board motion, confetti and the profile card — organised into clearly separated sections.
-- `public/voice.js`: the voice channel. A mesh of direct browser-to-browser lines — at most three per browser at a four-player table — with a level meter for the speaking markers and push-to-talk. It knows nothing about the game.
-- `src/voice/ice.js`: the shared ICE configuration. STUN is free and always offered; a Cloudflare TURN relay is added when a TURN key is configured as a server secret, and the key never reaches the browser.
-- `src/voice/protocol.js`: the signalling vocabulary, shared by the browser and both servers, so a malformed message is refused in the same way everywhere.
 - `public/profile.js`: the local profile card. A small, dependency-free module that reads and writes two `localStorage` keys — `parcheesi.profile` (name, statistics, recent matches) and `parcheesi.profile.photo` (a data URL). Photos are drawn to a canvas and re-encoded as a 256×256 JPEG so a picture can never fill the storage quota. Nothing is uploaded.
 - Every prompt-shaped interaction uses a real `<dialog>`: the name sheet, the table setup sheet, the table menu, the profile sheet, and a reusable confirmation sheet. All of them resolve a promise, validate before closing, and restore focus to whatever opened them.
 - The board is redrawn as SVG on every change. Tokens are grouped so a moved token can be transitioned from its old cell to its new one, and a captured token animates back to its base.

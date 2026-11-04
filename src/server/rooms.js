@@ -3,14 +3,13 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { initialState, applyRoll, applyMove, removePlayer } = require('../engine/ludo');
-const { parseVoiceSignal } = require('../voice/protocol');
 const DATA_DIR = path.join(__dirname, '../../data');
 const ROOM_FILE = path.join(DATA_DIR, 'rooms.json');
 const TTL_MS = Number(process.env.ROOM_TTL_HOURS || 24) * 3600_000;
 const GRACE_MS = Number(process.env.RECONNECT_GRACE_SECONDS || 120) * 1000;
 // Unambiguous alphabet: no I, L, O, 0 or 1, so codes can be read aloud without confusion.
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-const rooms = new Map(), sockets = new Map(), eventRates = new WeakMap();
+const rooms = new Map(), sockets = new Map(), eventRates = new WeakMap(), voiceRates = new WeakMap();
 function token(bytes = 24) { return crypto.randomBytes(bytes).toString('base64url'); }
 function inviteCode(length = 8) {
   const bytes = crypto.randomBytes(length);
@@ -21,7 +20,7 @@ function inviteCode(length = 8) {
 function normalizeInvite(value) {
   return String(value || '').toUpperCase().split('').filter((ch) => CODE_ALPHABET.includes(ch)).join('');
 }
-function safeRoom(room) { return { invite: room.invite, status: room.status, host: room.host, createdAt: room.createdAt, voiceEnabled: room.voiceEnabled !== false, players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color, ready: p.ready, connected: p.connected, host: p.id === room.host })), state: room.state, sequence: room.sequence }; }
+function safeRoom(room) { return { invite: room.invite, status: room.status, host: room.host, createdAt: room.createdAt, voice: !!room.voice, players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color, ready: p.ready, connected: p.connected, host: p.id === room.host })), state: room.state, sequence: room.sequence }; }
 function persist() { fs.mkdirSync(DATA_DIR, { recursive: true }); const serializable = [...rooms.values()].map(r => ({ ...r, peers: undefined })); const tmp = ROOM_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(serializable)); fs.renameSync(tmp, ROOM_FILE); }
 function restore() { try { const data = JSON.parse(fs.readFileSync(ROOM_FILE, 'utf8')); for (const r of data) { r.peers = new Map(); for (const player of r.players) { player.connected = false; player.disconnectedAt = Date.now(); } rooms.set(r.invite, r); } } catch {} }
 function emit(room, message) { for (const peer of room.peers.values()) peer.send({ sequence: room.sequence, ...message }); }
@@ -32,9 +31,9 @@ function cleanName(value) {
   const printable = String(value || 'Player').split('').filter((ch) => { const code = ch.codePointAt(0); return code > 31 && code !== 127; }).join('');
   return printable.replace(/[<>]/g, '').trim().slice(0, 20) || 'Player';
 }
-function createRoom(peer, name, voiceEnabled = true) {
+function createRoom(peer, name, voice) {
   const invite = inviteCode(8), playerToken = token(24), id = crypto.randomUUID();
-  const room = { id, invite, host: id, status: 'lobby', createdAt: Date.now(), updatedAt: Date.now(), voiceEnabled: voiceEnabled !== false, players: [{ id, token: playerToken, name: cleanName(name), color: 'red', ready: true, connected: true, disconnectedAt: null }], state: null, sequence: 0, peers: new Map() };
+  const room = { id, invite, host: id, status: 'lobby', createdAt: Date.now(), updatedAt: Date.now(), voice: voice === true, players: [{ id, token: playerToken, name: cleanName(name), color: 'red', ready: true, connected: true, disconnectedAt: null }], state: null, sequence: 0, peers: new Map() };
   rooms.set(invite, room); attach(room, room.players[0], peer); migrateHost(room); persist();
   peer.send({ type: 'room.created', sequence: room.sequence, invite, playerToken, playerColor: room.players[0].color, room: safeRoom(room) });
 }
@@ -46,25 +45,40 @@ function joinRoom(peer, invite, playerToken, name) {
   attach(room, player, peer); migrateHost(room); room.sequence++; room.updatedAt = Date.now(); persist();
   peer.send({ type: 'room.joined', sequence: room.sequence, invite: room.invite, playerToken: player.token, playerColor: player.color, room: safeRoom(room) }); snapshot(room);
 }
+// Voice chat only relays small connection messages between players. The audio itself
+// travels directly between the players' browsers and never passes through the server.
+function voiceRelay(room, player, msg) {
+  if (!room.voice) throw new Error('Voice chat is off for this table');
+  let target = null;
+  if (msg.to !== undefined && msg.to !== null) {
+    target = room.players.find(p => p.id === msg.to);
+    if (!target || target.id === player.id) return;
+  }
+  let out;
+  if (msg.type === 'voice.signal') {
+    if (!target) return;
+    if (msg.kind !== 'offer' && msg.kind !== 'answer') throw new Error('Invalid voice message');
+    if (typeof msg.sdp !== 'string' || msg.sdp.length > 20000) throw new Error('Invalid voice message');
+    out = { type: 'voice.signal', from: player.id, kind: msg.kind, sdp: msg.sdp, sid: String(msg.sid || '').slice(0, 40) };
+  } else {
+    const phase = ['announce', 'reply', 'update'].includes(msg.phase) ? msg.phase : 'update';
+    out = { type: 'voice.state', from: player.id, phase, joined: !!msg.joined, muted: !!msg.muted };
+  }
+  const recipients = target ? [target] : room.players.filter(p => p.id !== player.id);
+  for (const other of recipients) { const socket = room.peers.get(other.id); if (socket) socket.send(out); }
+}
 function playerContext(peer) { const ctx = sockets.get(peer); if (!ctx) throw new Error('Join a room first'); return ctx; }
 function handle(peer, msg) {
   try {
-    const now = Date.now(), rate = eventRates.get(peer) || { start: now, count: 0, voiceStart: now, voiceCount: 0 };
-    if (now - rate.start > 10_000) { rate.start = now; rate.count = 0; }
-    if (now - rate.voiceStart > 10_000) { rate.voiceStart = now; rate.voiceCount = 0; }
-    if (msg && msg.type === 'voice.signal') {
-      // A handshake carries a burst of network candidates, so it gets its own budget.
-      rate.voiceCount++;
-      if (rate.voiceCount > 240) throw new Error('Too much voice traffic. Please slow down.');
-    } else {
-      rate.count++;
-      if (rate.count > 50) throw new Error('Too many actions. Please slow down.');
-    }
-    eventRates.set(peer, rate);
+    const now = Date.now(), isVoice = !!msg && typeof msg.type === 'string' && msg.type.startsWith('voice.');
+    const rates = isVoice ? voiceRates : eventRates, rate = rates.get(peer) || { start: now, count: 0 };
+    if (now - rate.start > 10_000) { rate.start = now; rate.count = 0; } rate.count++; rates.set(peer, rate);
+    if (rate.count > (isVoice ? 120 : 50)) throw new Error('Too many actions. Please slow down.');
     if (!msg || typeof msg.type !== 'string') throw new Error('Invalid message');
-    if (msg.type === 'room.create') return createRoom(peer, msg.name, msg.voiceEnabled);
+    if (msg.type === 'room.create') return createRoom(peer, msg.name, msg.voice);
     if (msg.type === 'room.join') return joinRoom(peer, msg.invite, msg.playerToken, msg.name);
     const { room, player } = playerContext(peer);
+    if (msg.type === 'voice.state' || msg.type === 'voice.signal') return voiceRelay(room, player, msg);
     if (msg.type === 'lobby.ready') { if (room.status !== 'lobby') throw new Error('Lobby is closed'); player.ready = !!msg.ready; room.sequence++; }
     else if (msg.type === 'lobby.rename') { const next = cleanName(msg.name); if (!next) throw new Error('Name cannot be empty'); player.name = next; room.sequence++; }
     else if (msg.type === 'lobby.kick') {
@@ -110,23 +124,6 @@ function handle(peer, msg) {
       if (!room.players.length) rooms.delete(room.invite);
       else { migrateHost(room); room.updatedAt = Date.now(); }
       persist(); if (room.players.length) snapshot(room);
-      return;
-    }
-    else if (msg.type === 'voice.signal') {
-      // The server only carries the handshake. The audio never touches it.
-      if (room.voiceEnabled === false) throw new Error('Voice chat is disabled for this room');
-      const signal = parseVoiceSignal(msg, room.players.map((p) => p.color));
-      if (signal.to) {
-        const target = room.players.find((p) => p.color === signal.to);
-        const targetPeer = target ? room.peers.get(target.id) : null;
-        if (targetPeer) targetPeer.send({ type: 'voice.signal', kind: signal.kind, from: player.color, data: signal.data });
-      } else {
-        for (const seated of room.players) {
-          if (seated.id === player.id) continue;
-          const seatedPeer = room.peers.get(seated.id);
-          if (seatedPeer) seatedPeer.send({ type: 'voice.signal', kind: signal.kind, from: player.color, data: signal.data });
-        }
-      }
       return;
     }
     else if (msg.type === 'chat.send') { const body = String(msg.text || '').trim().slice(0, 240); if (!body) return; emit(room, { type: 'chat.message', player: player.name, color: player.color, text: body, sequence: ++room.sequence }); return; }
