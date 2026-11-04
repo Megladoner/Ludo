@@ -417,6 +417,11 @@ export default {
       const id = env.ROOM_HUB.idFromName(HUB_NAME);
       return env.ROOM_HUB.get(id).fetch(request);
     }
-    return env.ASSETS.fetch(request);
+    const assetUrl = new URL(request.url);
+    if (url.pathname === "/") assetUrl.pathname = "/home.html";
+    else if (url.pathname === "/ludo") assetUrl.pathname = "/index.html";
+    else if (/^\/room\/[a-zA-Z0-9_-]+$/.test(url.pathname)) assetUrl.pathname = "/index.html";
+    else if (url.pathname === "/chess") assetUrl.pathname = "/chess.html";
+    return env.ASSETS.fetch(new Request(assetUrl, request));
   }
 };
