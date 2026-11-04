@@ -32,12 +32,20 @@ function cleanName(value) {
   }).join("");
   return printable.replace(/[<>]/g, "").trim().slice(0, 20) || "Player";
 }
+const SKINS = ["red", "green", "yellow", "blue", "purple", "orange", "teal", "pink"];
+// A token colour is purely cosmetic: seats and rules never change. Colours stay unique per table.
+function pickSkin(room, wanted, seat) {
+  const taken = new Set(room.players.map((p) => p.skin || p.color));
+  if (SKINS.includes(wanted) && !taken.has(wanted)) return wanted;
+  if (SKINS.includes(seat) && !taken.has(seat)) return seat;
+  return SKINS.find((s) => !taken.has(s)) || seat;
+}
 function safeRoom(room) {
   return {
     invite: room.invite, status: room.status, host: room.host, createdAt: room.createdAt,
     voice: !!room.voice,
     players: room.players.map((p) => ({
-      id: p.id, name: p.name, color: p.color, ready: p.ready,
+      id: p.id, name: p.name, color: p.color, skin: p.skin || p.color, ready: p.ready,
       connected: p.connected, host: p.id === room.host
     })),
     state: room.state, sequence: room.sequence
@@ -120,14 +128,14 @@ export class RoomHub {
     player.connected = true;
     player.disconnectedAt = null;
   }
-  async createRoom(peer, name, voice) {
+  async createRoom(peer, name, voice, skin) {
     const invite = inviteCode(8);
     const playerToken = randomToken(24);
     const id = crypto.randomUUID();
     const room = {
       id, invite, host: id, status: "lobby", createdAt: Date.now(), updatedAt: Date.now(),
       voice: voice === true,
-      players: [{ id, token: playerToken, name: cleanName(name), color: "red", ready: true, connected: true, disconnectedAt: null }],
+      players: [{ id, token: playerToken, name: cleanName(name), color: "red", skin: SKINS.includes(skin) ? skin : "red", ready: true, connected: true, disconnectedAt: null }],
       state: null, sequence: 0
     };
     this.rooms.set(invite, room);
@@ -135,7 +143,7 @@ export class RoomHub {
     await this.persist(room);
     peer.send({ type: "room.created", sequence: room.sequence, invite, playerToken, playerColor: "red", room: safeRoom(room) });
   }
-  async joinRoom(peer, invite, playerToken, name) {
+  async joinRoom(peer, invite, playerToken, name, skin) {
     const code = normalizeInvite(invite);
     const room = this.rooms.get(code);
     if (!room || Date.now() - room.createdAt > TTL_MS) throw new Error("Invitation is invalid or expired");
@@ -143,9 +151,10 @@ export class RoomHub {
     if (!player) {
       if (room.status !== "lobby") throw new Error("Game already started; use your original seat link to reconnect");
       if (room.players.length >= 4) throw new Error("Room is full");
+      const seat = ["red", "green", "yellow", "blue"].find((c) => !room.players.some((p) => p.color === c));
       player = {
         id: crypto.randomUUID(), token: randomToken(24), name: cleanName(name),
-        color: ["red", "green", "yellow", "blue"][room.players.length],
+        color: seat, skin: pickSkin(room, skin, seat),
         ready: false, connected: true, disconnectedAt: null
       };
       room.players.push(player);
@@ -203,14 +212,20 @@ export class RoomHub {
       rates.set(ws, rate);
       if (rate.count > (isVoice ? 120 : 50)) throw new Error("Too many actions. Please slow down.");
       if (!msg || typeof msg.type !== "string") throw new Error("Invalid message");
-      if (msg.type === "room.create") return await this.createRoom(peer, msg.name, msg.voice);
-      if (msg.type === "room.join") return await this.joinRoom(peer, msg.invite, msg.playerToken, msg.name);
+      if (msg.type === "room.create") return await this.createRoom(peer, msg.name, msg.voice, msg.skin);
+      if (msg.type === "room.join") return await this.joinRoom(peer, msg.invite, msg.playerToken, msg.name, msg.skin);
 
       const { room, player } = this.roomContext(ws);
       if (msg.type === "voice.state" || msg.type === "voice.signal") return this.voiceRelay(room, player, msg);
       if (msg.type === "lobby.ready") {
         if (room.status !== "lobby") throw new Error("Lobby is closed");
         player.ready = !!msg.ready;
+        room.sequence++;
+      } else if (msg.type === "lobby.skin") {
+        if (room.status !== "lobby") throw new Error("Colours are locked once the game starts");
+        if (!SKINS.includes(msg.skin)) throw new Error("Unknown colour");
+        if (room.players.some((p) => p.id !== player.id && p.skin === msg.skin)) throw new Error("That colour is already taken");
+        player.skin = msg.skin;
         room.sequence++;
       } else if (msg.type === "lobby.rename") {
         const next = cleanName(msg.name);
