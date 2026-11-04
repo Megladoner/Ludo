@@ -11,11 +11,13 @@
   },
   "durable_objects": {
     "bindings": [
-      { "name": "ROOM_HUB", "class_name": "RoomHub" }
+      { "name": "ROOM_HUB", "class_name": "RoomHub" },
+      { "name": "CHESS_HUB", "class_name": "ChessHub" }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["RoomHub"] }
+    { "tag": "v1", "new_sqlite_classes": ["RoomHub"] },
+    { "tag": "v2", "new_sqlite_classes": ["ChessHub"] }
   ],
   "observability": { "enabled": true }
 }
