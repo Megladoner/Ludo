@@ -56,6 +56,13 @@ Nothing uses a native browser prompt any more.
 - **Table menu** — the `•••` button opens copy-link, rules, sound, reduced motion, full screen, and leave.
 - **Confirmations** — leaving a table or removing a player always asks first.
 
+## Token colours, motion and sound
+
+- **Pick your colour before you play.** Eight colours (Ruby, Sage, Amber, Cobalt, Violet, Ember, Lagoon, Rose). Against the AI and in pass & play the setup sheet has a swatch row per human seat; online, the lobby has a picker and the colour is shared with the whole table. Taken colours are greyed out. The choice is remembered on the device. Seats and rules never change; only the colour does.
+- **Tokens walk.** Each token hops square by square with a soft shadow, the squares it crossed glow in its colour, a capture sends a ring across the board, and the captured token spins home after the capturer lands.
+- **A real die.** A 3D cube with pips tumbles, bounces and lands on the rolled face. The computer and remote players roll it too.
+- **Synthesised sound.** `public/audio.js` builds every effect with the Web Audio API (dice rattle and thud, step ticks, entering, capture, home lane, finish, win, your-turn chime). No files, no downloads. A volume slider lives in Settings.
+
 ## The table itself
 
 - **The die has a seat.** It sits in the free inner corner of the home square of whoever is on turn, and slides across the board as the turns change hands — on every screen, not just yours.
