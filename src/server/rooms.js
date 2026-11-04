@@ -20,7 +20,15 @@ function inviteCode(length = 8) {
 function normalizeInvite(value) {
   return String(value || '').toUpperCase().split('').filter((ch) => CODE_ALPHABET.includes(ch)).join('');
 }
-function safeRoom(room) { return { invite: room.invite, status: room.status, host: room.host, createdAt: room.createdAt, voice: !!room.voice, players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color, ready: p.ready, connected: p.connected, host: p.id === room.host })), state: room.state, sequence: room.sequence }; }
+const SKINS = ['red', 'green', 'yellow', 'blue', 'purple', 'orange', 'teal', 'pink'];
+// A token colour is purely cosmetic: seats and rules never change. Colours stay unique per table.
+function pickSkin(room, wanted, seat) {
+  const taken = new Set(room.players.map(p => p.skin || p.color));
+  if (SKINS.includes(wanted) && !taken.has(wanted)) return wanted;
+  if (SKINS.includes(seat) && !taken.has(seat)) return seat;
+  return SKINS.find(s => !taken.has(s)) || seat;
+}
+function safeRoom(room) { return { invite: room.invite, status: room.status, host: room.host, createdAt: room.createdAt, voice: !!room.voice, players: room.players.map(p => ({ id: p.id, name: p.name, color: p.color, skin: p.skin || p.color, ready: p.ready, connected: p.connected, host: p.id === room.host })), state: room.state, sequence: room.sequence }; }
 function persist() { fs.mkdirSync(DATA_DIR, { recursive: true }); const serializable = [...rooms.values()].map(r => ({ ...r, peers: undefined })); const tmp = ROOM_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(serializable)); fs.renameSync(tmp, ROOM_FILE); }
 function restore() { try { const data = JSON.parse(fs.readFileSync(ROOM_FILE, 'utf8')); for (const r of data) { r.peers = new Map(); for (const player of r.players) { player.connected = false; player.disconnectedAt = Date.now(); } rooms.set(r.invite, r); } } catch {} }
 function emit(room, message) { for (const peer of room.peers.values()) peer.send({ sequence: room.sequence, ...message }); }
@@ -31,17 +39,17 @@ function cleanName(value) {
   const printable = String(value || 'Player').split('').filter((ch) => { const code = ch.codePointAt(0); return code > 31 && code !== 127; }).join('');
   return printable.replace(/[<>]/g, '').trim().slice(0, 20) || 'Player';
 }
-function createRoom(peer, name, voice) {
+function createRoom(peer, name, voice, skin) {
   const invite = inviteCode(8), playerToken = token(24), id = crypto.randomUUID();
-  const room = { id, invite, host: id, status: 'lobby', createdAt: Date.now(), updatedAt: Date.now(), voice: voice === true, players: [{ id, token: playerToken, name: cleanName(name), color: 'red', ready: true, connected: true, disconnectedAt: null }], state: null, sequence: 0, peers: new Map() };
+  const room = { id, invite, host: id, status: 'lobby', createdAt: Date.now(), updatedAt: Date.now(), voice: voice === true, players: [{ id, token: playerToken, name: cleanName(name), color: 'red', skin: SKINS.includes(skin) ? skin : 'red', ready: true, connected: true, disconnectedAt: null }], state: null, sequence: 0, peers: new Map() };
   rooms.set(invite, room); attach(room, room.players[0], peer); migrateHost(room); persist();
   peer.send({ type: 'room.created', sequence: room.sequence, invite, playerToken, playerColor: room.players[0].color, room: safeRoom(room) });
 }
 function attach(room, player, peer) { const old = room.peers.get(player.id); if (old && old !== peer) old.close(4001); room.peers.set(player.id, peer); player.connected = true; player.disconnectedAt = null; sockets.set(peer, { room, player }); }
-function joinRoom(peer, invite, playerToken, name) {
+function joinRoom(peer, invite, playerToken, name, skin) {
   const room = rooms.get(normalizeInvite(invite)); if (!room || Date.now() - room.createdAt > TTL_MS) throw new Error('Invitation is invalid or expired');
   let player = room.players.find(p => p.token === playerToken);
-  if (!player) { if (room.status !== 'lobby') throw new Error('Game already started; use your original seat link to reconnect'); if (room.players.length >= 4) throw new Error('Room is full'); player = { id: crypto.randomUUID(), token: token(24), name: cleanName(name), color: ['red', 'green', 'yellow', 'blue'][room.players.length], ready: false, connected: true, disconnectedAt: null }; room.players.push(player); }
+  if (!player) { if (room.status !== 'lobby') throw new Error('Game already started; use your original seat link to reconnect'); if (room.players.length >= 4) throw new Error('Room is full'); const seat = ['red', 'green', 'yellow', 'blue'].find(c => !room.players.some(p => p.color === c)); player = { id: crypto.randomUUID(), token: token(24), name: cleanName(name), color: seat, skin: pickSkin(room, skin, seat), ready: false, connected: true, disconnectedAt: null }; room.players.push(player); }
   attach(room, player, peer); migrateHost(room); room.sequence++; room.updatedAt = Date.now(); persist();
   peer.send({ type: 'room.joined', sequence: room.sequence, invite: room.invite, playerToken: player.token, playerColor: player.color, room: safeRoom(room) }); snapshot(room);
 }
@@ -75,11 +83,12 @@ function handle(peer, msg) {
     if (now - rate.start > 10_000) { rate.start = now; rate.count = 0; } rate.count++; rates.set(peer, rate);
     if (rate.count > (isVoice ? 120 : 50)) throw new Error('Too many actions. Please slow down.');
     if (!msg || typeof msg.type !== 'string') throw new Error('Invalid message');
-    if (msg.type === 'room.create') return createRoom(peer, msg.name, msg.voice);
-    if (msg.type === 'room.join') return joinRoom(peer, msg.invite, msg.playerToken, msg.name);
+    if (msg.type === 'room.create') return createRoom(peer, msg.name, msg.voice, msg.skin);
+    if (msg.type === 'room.join') return joinRoom(peer, msg.invite, msg.playerToken, msg.name, msg.skin);
     const { room, player } = playerContext(peer);
     if (msg.type === 'voice.state' || msg.type === 'voice.signal') return voiceRelay(room, player, msg);
     if (msg.type === 'lobby.ready') { if (room.status !== 'lobby') throw new Error('Lobby is closed'); player.ready = !!msg.ready; room.sequence++; }
+    else if (msg.type === 'lobby.skin') { if (room.status !== 'lobby') throw new Error('Colours are locked once the game starts'); if (!SKINS.includes(msg.skin)) throw new Error('Unknown colour'); if (room.players.some(p => p.id !== player.id && p.skin === msg.skin)) throw new Error('That colour is already taken'); player.skin = msg.skin; room.sequence++; }
     else if (msg.type === 'lobby.rename') { const next = cleanName(msg.name); if (!next) throw new Error('Name cannot be empty'); player.name = next; room.sequence++; }
     else if (msg.type === 'lobby.kick') {
       if (player.id !== room.host) throw new Error('Only the host can remove a player');
