@@ -12,6 +12,7 @@ Every server message carries a top-level `sequence`. It increases on every state
 | `room.join` | `invite`, `playerToken?`, `name` | `invite` is case- and punctuation-insensitive. Send the stored `playerToken` to reclaim a seat. |
 | `lobby.ready` | `ready` | Boolean. |
 | `lobby.rename` | `name` | Changes the sender's display name. |
+| `lobby.skin` | `skin` | Picks the colour of the sender's tokens (`red`, `green`, `yellow`, `blue`, `purple`, `orange`, `teal`, `pink`). Cosmetic only; seats never change. Colours are unique per table and locked once the game starts. `room.create` and `room.join` also accept an optional `skin`. Every player in a snapshot carries a `skin`. |
 | `lobby.kick` | `playerId` | Host only. Removes another player from the table. |
 | `lobby.start` | — | Host only. Requires at least two players, everyone ready. |
 | `game.roll` | — | Only valid on the player's turn. The server rolls the dice. |
