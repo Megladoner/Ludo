@@ -11,7 +11,15 @@ const P = window.ParcheesiProfile;
 const V = window.ParcheesiVoice;
 const $ = (id) => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
-const DICE_FACES = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+const A = window.ParcheesiAudio;
+// Token colours are cosmetic. Seats (and the rules) never change; each seat just wears a colour.
+const SKINS = ['red', 'green', 'yellow', 'blue', 'purple', 'orange', 'teal', 'pink'];
+const SKIN_NAMES = { red: 'Ruby', green: 'Sage', yellow: 'Amber', blue: 'Cobalt', purple: 'Violet', orange: 'Ember', teal: 'Lagoon', pink: 'Rose' };
+// Cube rotation [x, y] that brings each face to the front.
+const DIE_TURN = { 1: [0, 0], 2: [0, -90], 3: [-90, 0], 4: [90, 0], 5: [0, 90], 6: [0, 180] };
+const DIE_PIPS = { 1: [5], 2: [1, 9], 3: [1, 5, 9], 4: [1, 3, 7, 9], 5: [1, 3, 5, 7, 9], 6: [1, 3, 4, 6, 7, 9] };
+const TUMBLE_MIN = 420;
+const SETTLE_MS = 520;
 const BASE = {red:[[1.5,1.5],[3.5,1.5],[1.5,3.5],[3.5,3.5]],green:[[10.5,1.5],[12.5,1.5],[10.5,3.5],[12.5,3.5]],yellow:[[10.5,10.5],[12.5,10.5],[10.5,12.5],[12.5,12.5]],blue:[[1.5,10.5],[3.5,10.5],[1.5,12.5],[3.5,12.5]]};
 const YARD = {red:[-.5,-.5],green:[8.5,-.5],yellow:[8.5,8.5],blue:[-.5,8.5]};
 const DIR = {red:[-1,0],green:[0,-1],yellow:[1,0],blue:[0,1]};
@@ -26,6 +34,7 @@ const state = {
   intentionalClose: false, chatUnread: 0, sequence: -1,
   resultRecorded: false, autoMoveTimer: null, moveLock: 0, finishedSeen: [],
   chat: [], resuming: false,
+  skins: {}, fx: null, lastTurn: null, rolling: false,
 };
 
 /* ---------------------------------------------------------------- utils -- */
@@ -85,11 +94,12 @@ function syncAvatar() {
 /* ---------------------------------------------------------- preferences -- */
 
 const THEMES = ['noir', 'classic', 'forest'];
-const DEFAULT_PREFS = { motion: false, sound: true, theme: 'noir' };
+const DEFAULT_PREFS = { motion: false, sound: true, theme: 'noir', volume: 80 };
 let prefs = (() => {
   const stored = readJSON('parcheesi.settings', {});
   const merged = { ...DEFAULT_PREFS, ...stored };
   if (!THEMES.includes(merged.theme)) merged.theme = 'noir';
+  merged.volume = Number.isFinite(Number(merged.volume)) ? Math.max(0, Math.min(100, Number(merged.volume))) : 80;
   return merged;
 })();
 
@@ -99,6 +109,7 @@ function applyPrefs(next) {
   root.classList.toggle('reduced-motion', !!next.motion);
   const bg = getComputedStyle(root).getPropertyValue('--bg').trim();
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', bg || '#08090b');
+  if (A) { A.setEnabled(next.sound); A.setVolume((next.volume == null ? 80 : next.volume) / 100); }
   const soundState = $('menu-sound-state');
   if (soundState) soundState.textContent = next.sound ? 'On' : 'Off';
   const motionState = $('menu-motion-state');
@@ -106,16 +117,17 @@ function applyPrefs(next) {
 }
 function readForm() {
   const theme = document.querySelector('input[name="theme"]:checked');
-  return { motion: $('motion-setting').checked, sound: $('sound-setting').checked, theme: theme ? theme.value : 'noir' };
+  return { motion: $('motion-setting').checked, sound: $('sound-setting').checked, theme: theme ? theme.value : 'noir', volume: Number($('volume-setting').value) };
 }
 function fillForm(settings) {
   $('motion-setting').checked = !!settings.motion;
   $('sound-setting').checked = !!settings.sound;
+  $('volume-setting').value = String(settings.volume == null ? 80 : settings.volume);
   const option = document.querySelector(`input[name="theme"][value="${settings.theme}"]`) || document.querySelector('input[name="theme"][value="noir"]');
   if (option) option.checked = true;
 }
 function savePrefs(settings) {
-  prefs = { motion: !!settings.motion, sound: !!settings.sound, theme: THEMES.includes(settings.theme) ? settings.theme : 'noir' };
+  prefs = { motion: !!settings.motion, sound: !!settings.sound, theme: THEMES.includes(settings.theme) ? settings.theme : 'noir', volume: Number.isFinite(Number(settings.volume)) ? Math.max(0, Math.min(100, Number(settings.volume))) : 80 };
   writeJSON('parcheesi.settings', prefs);
   applyPrefs(prefs);
 }
@@ -126,34 +138,27 @@ function openSettings() {
 
 /* --------------------------------------------------------------- audio -- */
 
-let actx;
-function tone(freq, duration, type, volume, delay) {
-  if (!prefs.sound) return;
-  try {
-    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
-    if (actx.state === 'suspended') actx.resume();
-    const t = actx.currentTime + (delay || 0);
-    const osc = actx.createOscillator();
-    const gain = actx.createGain();
-    osc.type = type || 'sine';
-    osc.frequency.setValueAtTime(freq, t);
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(volume || 0.08, t + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
-    osc.connect(gain); gain.connect(actx.destination);
-    osc.start(t); osc.stop(t + duration + 0.02);
-  } catch {}
+// All sounds are synthesised in audio.js. Without it the table simply plays silent.
+const sfx = A ? A.sfx : new Proxy({}, { get: () => () => {} });
+
+/* --------------------------------------------------------------- skins -- */
+
+function savedSkin() { const value = readJSON('parcheesi.skin', null); return SKINS.includes(value) ? value : 'red'; }
+function saveSkin(value) { if (SKINS.includes(value)) writeJSON('parcheesi.skin', value); }
+function skinOf(seat) {
+  if (!seat) return 'red';
+  if (state.local) return state.skins[seat] || seat;
+  const player = state.room?.players.find((p) => p.color === seat);
+  return (player && player.skin) || seat;
 }
-const sfx = {
-  roll() { [0, 0.07, 0.14, 0.21].forEach((t, i) => tone(180 + i * 55, 0.06, 'square', 0.035, t)); },
-  enter() { tone(440, 0.08, 'triangle', 0.06); tone(660, 0.1, 'triangle', 0.05, 0.07); },
-  move() { tone(520, 0.1, 'triangle', 0.09); },
-  capture() { tone(330, 0.12, 'sawtooth', 0.06); tone(165, 0.25, 'sawtooth', 0.06, 0.1); },
-  pen() { tone(200, 0.25, 'sine', 0.08); },
-  bonus() { [660, 880, 1170].forEach((f, i) => tone(f, 0.14, 'triangle', 0.07, i * 0.07)); },
-  win() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.2, 'triangle', 0.08, i * 0.14)); },
-  finish() { [784, 988, 1175, 1568].forEach((f, i) => tone(f, 0.22, 'sine', 0.07, i * 0.09)); },
-};
+function swatchButtons(current, taken) {
+  return SKINS.map((key) => {
+    const owner = taken ? taken(key) : null;
+    return '<button type="button" class="swatch k-' + key + '" data-skin="' + key + '" role="radio" aria-checked="' + (key === current) + '"' +
+      ' aria-label="' + SKIN_NAMES[key] + (owner ? ', taken by ' + esc(owner) : '') + '" title="' + SKIN_NAMES[key] + (owner ? ' · ' + esc(owner) : '') + '"' +
+      (owner ? ' disabled' : '') + '></button>';
+  }).join('');
+}
 
 /* -------------------------------------------------------------- confetti -- */
 
@@ -377,12 +382,20 @@ function askSetup(mode) {
 
   let count = 4;
   let difficulty = state.aiDifficulty || 'normal';
+  const skins = {};
+  E.PLAYER_IDS.forEach((id, index) => { skins[id] = SKINS[index]; });
+  const chooseSkin = (seat, skin) => {
+    const other = Object.keys(skins).find((key) => key !== seat && skins[key] === skin);
+    if (other) skins[other] = skins[seat];
+    skins[seat] = skin;
+  };
+  chooseSkin(E.PLAYER_IDS[0], savedSkin());
 
   $('setup-eyebrow').textContent = mode === 'ai' ? 'CHALLENGE THE TABLE' : 'PASS & PLAY';
   $('setup-heading').textContent = mode === 'ai' ? 'How tough a table?' : 'How many players?';
   $('setup-note').textContent = mode === 'ai'
-    ? 'You take the first seat. The rest of the table plays the house.'
-    : 'Everyone shares this device. Pass it around when it is your turn.';
+    ? 'You take the first seat. Pick the colour of your tokens; the rest of the table plays the house.'
+    : 'Everyone shares this device. Each player picks the colour of their own tokens.';
   $('setup-confirm').textContent = mode === 'ai' ? 'Take your seat →' : 'Deal the cards →';
   aiBlock.hidden = mode !== 'ai';
 
@@ -400,16 +413,26 @@ function askSetup(mode) {
       const row = document.createElement('div');
       row.className = 'setup-name' + (isAi ? ' is-ai' : '');
       const dot = document.createElement('span');
-      dot.className = 'seat-dot color-' + id;
+      dot.className = 'seat-dot color-' + skins[id];
       const input = document.createElement('input');
       input.type = 'text';
       input.maxLength = 20;
       input.dataset.seat = id;
-      input.value = draft[id] ?? (isAi ? aiNames[index - 1] : (index === 0 ? playerName() : 'Player ' + (index + 1)));
+      if (isAi && draft[id] === undefined) draft[id] = aiNames[index - 1];
+      input.value = draft[id] ?? (index === 0 ? playerName() : 'Player ' + (index + 1));
       input.readOnly = isAi;
       input.setAttribute('aria-label', 'Name for the ' + id + ' seat');
       input.addEventListener('input', () => { draft[id] = input.value; });
       row.append(dot, input);
+      if (!isAi) {
+        const picker = document.createElement('div');
+        picker.className = 'swatches swatches-inline';
+        picker.setAttribute('role', 'radiogroup');
+        picker.setAttribute('aria-label', 'Token colour for ' + (input.value || 'this seat'));
+        picker.dataset.seat = id;
+        picker.innerHTML = swatchButtons(skins[id], null);
+        row.appendChild(picker);
+      }
       namesBox.appendChild(row);
     });
   };
@@ -429,6 +452,12 @@ function askSetup(mode) {
     const onOption = (event) => {
       const option = event.target.closest('.seat-option');
       if (option) { count = Number(option.dataset.count); paintOptions(); paintNames(); return; }
+      const swatch = event.target.closest('.swatch[data-skin]');
+      if (swatch) {
+        const holder = swatch.closest('[data-seat]');
+        if (holder) { chooseSkin(holder.dataset.seat, swatch.dataset.skin); paintNames(); }
+        return;
+      }
       const tier = event.target.closest('#setup-difficulty button');
       if (tier) { difficulty = tier.dataset.difficulty; paintOptions(); }
     };
@@ -436,8 +465,11 @@ function askSetup(mode) {
       event.preventDefault();
       const names = {};
       namesBox.querySelectorAll('input[data-seat]').forEach((input) => { names[input.dataset.seat] = cleanName(input.value) || 'Player'; });
+      const chosen = {};
+      E.PLAYER_IDS.slice(0, count).forEach((id) => { chosen[id] = skins[id]; });
+      saveSkin(skins[E.PLAYER_IDS[0]]);
       dialog.close();
-      finish({ count, names, difficulty });
+      finish({ count, names, difficulty, skins: chosen });
     };
     const onClose = () => finish(null);
     dialog.addEventListener('click', onOption);
@@ -614,7 +646,7 @@ function message(m) {
   if (m.type === 'game.started' || m.type === 'game.update') {
     state.room = m.room;
     state.game = m.room.state;
-    if (m.event && m.event.type === 'roll') { landDice(m.event.roll); }
+    if (m.event && m.event.type === 'roll') { if (!state.diceAnim) startDiceTumble(); landDice(m.event.roll); }
     if (m.type === 'game.started') { state.resultRecorded = false; state.finishedSeen = []; }
     renderGame();
     if (state.game.status === 'finished') result();
@@ -646,6 +678,9 @@ function message(m) {
 }
 
 function resetRoom() {
+  state.fx = null;
+  state.lastTurn = null;
+  inflight.clear();
   state.room = null;
   state.game = null;
   state.token = null;
@@ -715,20 +750,59 @@ function renderLobby() {
     seat.className = 'player-seat' + (!player ? ' seat-empty' : '');
     if (player) {
       seat.dataset.color = player.color;
+      seat.dataset.skin = player.skin || player.color;
       const kick = isHost && !player.host
         ? `<button class="seat-kick" data-kick="${esc(player.id)}" aria-label="Remove ${esc(player.name)}" title="Remove">×</button>`
         : '';
       seat.innerHTML =
-        '<span class="seat-dot color-' + player.color + '"></span>' +
+        '<span class="seat-dot color-' + (player.skin || player.color) + '"></span>' +
         '<div class="seat-info"><b>' + esc(player.name) + (player.host ? ' · HOST' : '') + '</b>' +
-        '<small>' + (player.connected ? 'CONNECTED' : 'RECONNECTING') + ' · ' + player.color.toUpperCase() + '</small></div>' +
+        '<small>' + (player.connected ? 'CONNECTED' : 'RECONNECTING') + ' · ' + SKIN_NAMES[player.skin || player.color].toUpperCase() + '</small></div>' +
         '<span class="seat-ready">' + (player.ready ? 'READY' : 'NOT READY') + '</span>' + kick;
     } else {
       seat.innerHTML = '<span class="seat-dot color-muted"></span><div class="seat-info"><b>Open seat</b><small>INVITE A FRIEND</small></div>';
     }
     grid.appendChild(seat);
   }
+  renderSkinPicker();
   if (V) V.decorate();
+}
+
+function renderSkinPicker() {
+  const room = state.room;
+  const box = $('skin-picker');
+  if (!room || !box) return;
+  const me = room.players.find((p) => p.color === state.color);
+  $('skin-block').hidden = !me || room.status !== 'lobby';
+  if (!me) return;
+  const mine = me.skin || me.color;
+  box.innerHTML = swatchButtons(mine, (key) => {
+    const owner = room.players.find((p) => p.id !== me.id && (p.skin || p.color) === key);
+    return owner ? owner.name : null;
+  });
+}
+
+// Every seat wears a colour. Empty seats borrow whichever colours nobody else uses.
+function skinMap(game) {
+  const map = {};
+  const used = new Set();
+  game.players.forEach((p) => { map[p.id] = skinOf(p.id); used.add(map[p.id]); });
+  const free = SKINS.filter((key) => !used.has(key));
+  E.PLAYER_IDS.forEach((id) => { if (!map[id]) map[id] = free.shift() || id; });
+  return map;
+}
+
+// The square a token stands on at a given progress (ignores stacking offsets).
+function coordFor(seat, progress) {
+  if (progress >= E.FINISH_PROGRESS) return [7, 7];
+  if (progress >= E.HOME_ENTRY_PROGRESS) return E.HOME_COORDS[seat][progress - E.HOME_ENTRY_PROGRESS];
+  return E.TRACK_COORDS[E.globalTrackIndex(seat, progress)];
+}
+
+// A walk of n squares takes about a second at most, however long it is.
+function hopTiming(steps) {
+  const step = Math.max(110, Math.min(200, 1100 / Math.max(1, steps)));
+  return { step, total: step * steps };
 }
 
 function computeLayout(game, interactive) {
@@ -747,7 +821,7 @@ function computeLayout(game, interactive) {
       [x, y] = E.TRACK_COORDS[E.globalTrackIndex(player.id, progress)];
     }
     items.push({
-      player, index, x, y, r, share: progress >= 0 && !done,
+      player, index, x, y, r, progress, share: progress >= 0 && !done,
       can: player.id === turn?.id && legal.includes(index),
       homeward: progress >= E.HOME_ENTRY_PROGRESS && progress < E.FINISH_PROGRESS,
     });
@@ -763,12 +837,67 @@ function computeLayout(game, interactive) {
   return items;
 }
 
+/* ------------------------------------------------------- token motion -- */
+
+const inflight = new Map(); // token key -> the motion in progress, so a redraw can pick it up again
+
+function planMotion(prev, item) {
+  if (!prev) return null;
+  const moved = Math.abs(prev.x - item.x) > 0.001 || Math.abs(prev.y - item.y) > 0.001;
+  if (!moved) return null;
+  const seat = item.player.id;
+  const a = prev.progress, b = item.progress;
+  if (a >= 0 && b > a && b - a <= 6) {
+    // Walk it square by square, hopping.
+    const pts = [[prev.x, prev.y]];
+    for (let p = a + 1; p < b; p++) pts.push(coordFor(seat, p));
+    pts.push([item.x, item.y]);
+    const timing = hopTiming(pts.length - 1);
+    return { kind: 'hop', pts, duration: timing.total, delay: 0 };
+  }
+  if (a === -1 && b === 0) return { kind: 'hop', pts: [[prev.x, prev.y], [item.x, item.y]], duration: 520, delay: 0, big: true };
+  if (b === -1 && a >= 0) return { kind: 'home', pts: [[prev.x, prev.y], [item.x, item.y]], duration: 720, delay: 0 };
+  return { kind: 'glide', pts: [[prev.x, prev.y], [item.x, item.y]], duration: 420, delay: 0 };
+}
+
+function runMotion(group, body, shadow, plan, elapsed) {
+  const n = plan.pts.length - 1;
+  const opts = { duration: plan.duration, delay: plan.delay || 0, fill: 'backwards' };
+  const ease = plan.kind === 'hop' ? 'cubic-bezier(.4,.1,.6,.9)' : 'cubic-bezier(.3,.7,.2,1)';
+  const running = [group.animate(plan.pts.map((p, i) => ({
+    offset: i / n, transform: 'translate(' + p[0] + 'px, ' + p[1] + 'px)', easing: ease,
+  })), opts)];
+  if (plan.kind === 'hop') {
+    const lift = plan.big ? 0.9 : 0.4;
+    const bodyFrames = [], shadowFrames = [];
+    for (let i = 0; i < n; i++) {
+      bodyFrames.push({ offset: i / n, transform: 'translateY(0px) scale(1, 1)' });
+      bodyFrames.push({ offset: (i + 0.45) / n, transform: 'translateY(' + -lift + 'px) scale(1.14, 1.14)' });
+      bodyFrames.push({ offset: (i + 0.88) / n, transform: 'translateY(0px) scale(1.1, .86)' });
+      shadowFrames.push({ offset: i / n, transform: 'scale(1)', opacity: 1 });
+      shadowFrames.push({ offset: (i + 0.45) / n, transform: 'scale(.62)', opacity: 0.45 });
+      shadowFrames.push({ offset: (i + 0.88) / n, transform: 'scale(1.08)', opacity: 1 });
+    }
+    bodyFrames.push({ offset: 1, transform: 'translateY(0px) scale(1, 1)' });
+    shadowFrames.push({ offset: 1, transform: 'scale(1)', opacity: 1 });
+    running.push(body.animate(bodyFrames, opts), shadow.animate(shadowFrames, opts));
+  } else if (plan.kind === 'home') {
+    running.push(body.animate([
+      { offset: 0, transform: 'rotate(0deg) scale(1)', opacity: 1 },
+      { offset: 0.4, transform: 'rotate(190deg) scale(1.3)', opacity: 1 },
+      { offset: 1, transform: 'rotate(420deg) scale(1)', opacity: 1 },
+    ], opts));
+  }
+  if (elapsed > 0) running.forEach((anim) => { anim.currentTime = elapsed; });
+}
+
 function board(target, game, interactive) {
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('viewBox', '-.5 -.5 15 15');
   svg.setAttribute('class', 'board-svg');
   svg.setAttribute('role', 'group');
   svg.setAttribute('aria-label', 'Parcheesi board. Select a highlighted token to move it.');
+  svg.innerHTML = '<defs><radialGradient id="tok-gloss" cx=".34" cy=".28" r=".8"><stop offset="0" stop-color="#fff" stop-opacity=".62"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".3"/></radialGradient></defs>';
 
   const make = (tag, attrs, text) => {
     const node = document.createElementNS(NS, tag);
@@ -778,26 +907,27 @@ function board(target, game, interactive) {
   };
   const el = (tag, attrs, text) => { const node = make(tag, attrs, text); svg.appendChild(node); return node; };
 
+  const skins = skinMap(game);
   const active = new Set(game.players.map((p) => p.id));
   el('rect', { x: -0.5, y: -0.5, width: 15, height: 15, rx: 0.6, class: 'b-board' });
   E.PLAYER_IDS.forEach((color) => {
     const [x, y] = YARD[color];
     const idle = active.has(color) ? '' : ' is-idle';
-    el('rect', { x, y, width: 6, height: 6, rx: 0.6, class: 'b-yard c-' + color + idle });
+    el('rect', { x, y, width: 6, height: 6, rx: 0.6, class: 'b-yard c-' + skins[color] + idle });
     el('rect', { x: x + 0.7, y: y + 0.7, width: 4.6, height: 4.6, rx: 0.5, class: 'b-yard-in' + idle });
     BASE[color].forEach(([cx, cy]) => el('circle', { cx, cy, r: 0.62, class: 'b-pad' + idle }));
   });
   E.TRACK_COORDS.forEach(([x, y], i) => {
     const start = E.PLAYER_IDS.find((c) => E.START_OFFSETS[c] === i);
     const safe = E.SAFE_TRACK.has(i);
-    el('rect', { x: x - 0.46, y: y - 0.46, width: 0.92, height: 0.92, rx: 0.1, class: 'b-cell' + (safe ? ' is-safe' : '') + (start ? ' is-start c-' + start : '') });
+    el('rect', { x: x - 0.46, y: y - 0.46, width: 0.92, height: 0.92, rx: 0.14, class: 'b-cell' + (safe ? ' is-safe' : '') + (start ? ' is-start c-' + skins[start] : '') });
     if (safe) el('text', { x, y: y + 0.03, class: 'b-star' + (start ? ' on-start' : '') }, '✦');
   });
   E.PLAYER_IDS.forEach((color) => E.HOME_COORDS[color].slice(0, 5).forEach(([x, y]) => {
-    el('rect', { x: x - 0.46, y: y - 0.46, width: 0.92, height: 0.92, rx: 0.1, class: 'b-lane c-' + color });
+    el('rect', { x: x - 0.46, y: y - 0.46, width: 0.92, height: 0.92, rx: 0.14, class: 'b-lane c-' + skins[color] });
   }));
   [['red', '5.5,5.5 7,7 5.5,8.5'], ['green', '5.5,5.5 8.5,5.5 7,7'], ['yellow', '8.5,5.5 8.5,8.5 7,7'], ['blue', '5.5,8.5 8.5,8.5 7,7']].forEach(([color, points]) => {
-    el('polygon', { points, class: 'b-tri c-' + color });
+    el('polygon', { points, class: 'b-tri c-' + skins[color] });
   });
 
   // The home square of whoever is on turn wears a bold frame.
@@ -805,15 +935,37 @@ function board(target, game, interactive) {
   if (onTurn) {
     const [ax, ay] = YARD[onTurn.id];
     el('rect', { x: ax - 0.1, y: ay - 0.1, width: 6.2, height: 6.2, rx: 0.7, class: 'b-yard-frame' });
-    el('rect', { x: ax - 0.02, y: ay - 0.02, width: 6.04, height: 6.04, rx: 0.64, class: 'b-yard-frame-inner c-' + onTurn.id + ' b-yard-frame-pulse' });
+    el('rect', { x: ax - 0.02, y: ay - 0.02, width: 6.04, height: 6.04, rx: 0.64, class: 'b-yard-frame-inner c-' + skins[onTurn.id] + ' b-yard-frame-pulse' });
+  }
+
+  // The squares the last token walked over glow for a moment, one after another.
+  const now = performance.now();
+  const fx = state.fx && now - state.fx.at < 2000 ? state.fx : null;
+  if (fx && !prefs.motion) {
+    const elapsed = (now - fx.at) / 1000;
+    fx.trail.forEach(([x, y], i) => {
+      const cell = el('rect', { x: x - 0.46, y: y - 0.46, width: 0.92, height: 0.92, rx: 0.14, class: 'b-trail c-' + fx.skin });
+      cell.style.animationDelay = (i * fx.step / 1000 - elapsed).toFixed(3) + 's';
+    });
   }
 
   const items = computeLayout(game, interactive);
+  const plans = new Map();
+  items.forEach((item) => {
+    const plan = planMotion(layoutCache.get(item.player.id + ':' + item.index), item);
+    if (plan && !prefs.motion) plans.set(item.player.id + ':' + item.index, plan);
+  });
+  // A token sent home waits until the capturing token has landed.
+  const lead = Math.max(0, ...[...plans.values()].filter((p) => p.kind !== 'home').map((p) => p.duration));
+  plans.forEach((plan) => { if (plan.kind === 'home') plan.delay = lead; });
+
   const nextLayout = new Map();
   items.sort((a, b) => a.can - b.can).forEach((item) => {
     const key = item.player.id + ':' + item.index;
-    nextLayout.set(key, { x: item.x, y: item.y });
+    nextLayout.set(key, { x: item.x, y: item.y, progress: item.progress });
     const group = make('g', { class: 'token-g' });
+    const shadow = make('ellipse', { cx: 0, cy: item.r * 0.62, rx: item.r * 0.92, ry: item.r * 0.4, class: 'token-shadow' });
+    group.appendChild(shadow);
     if (item.can) {
       group.appendChild(make('circle', { cx: 0, cy: 0, r: item.r + 0.13, class: 'b-ring b-ring-dark' }));
       group.appendChild(make('circle', { cx: 0, cy: 0, r: item.r + 0.13, class: 'b-ring' }));
@@ -821,30 +973,42 @@ function board(target, game, interactive) {
     if (item.homeward) {
       group.appendChild(make('circle', { cx: 0, cy: 0, r: item.r + 0.18, class: 'b-ring b-homeward' }));
     }
-    group.appendChild(make('circle', { cx: 0, cy: 0, r: item.r, class: 'token c-' + item.player.id }));
-    group.appendChild(make('circle', { cx: -item.r * 0.28, cy: -item.r * 0.3, r: item.r * 0.38, class: 'token-shine' }));
+    const body = make('g', { class: 'token-body' });
+    body.appendChild(make('circle', { cx: 0, cy: 0, r: item.r, class: 'token c-' + skins[item.player.id] }));
+    body.appendChild(make('circle', { cx: 0, cy: 0, r: item.r * 0.62, class: 'token-ring' }));
+    body.appendChild(make('circle', { cx: 0, cy: 0, r: item.r, class: 'token-gloss' }));
+    group.appendChild(body);
     if (item.can) {
       group.appendChild(make('circle', {
         cx: 0, cy: 0, r: 0.62, class: 'hit', 'data-token': item.index, tabindex: 0, role: 'button',
         'aria-label': item.player.name + ' token ' + (item.index + 1) + (item.bonus ? ', bonus move' : ''),
       }));
     }
-    const previous = layoutCache.get(key);
-    const moved = previous && (Math.abs(previous.x - item.x) > 0.001 || Math.abs(previous.y - item.y) > 0.001);
-    if (moved && !prefs.motion) {
-      group.classList.add('no-motion');
-      group.style.transform = `translate(${previous.x}px, ${previous.y}px)`;
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        group.classList.remove('no-motion');
-        group.style.transform = `translate(${item.x}px, ${item.y}px)`;
-      }));
-    } else {
-      group.style.transform = `translate(${item.x}px, ${item.y}px)`;
-    }
+    group.style.transform = 'translate(' + item.x + 'px, ' + item.y + 'px)';
     svg.appendChild(group);
+
+    if (!prefs.motion) {
+      const plan = plans.get(key);
+      const live = inflight.get(key);
+      if (plan) {
+        inflight.set(key, { start: now, plan, progress: item.progress });
+        runMotion(group, body, shadow, plan, 0);
+      } else if (live && live.progress === item.progress && now - live.start < live.plan.duration + live.plan.delay) {
+        // The board was redrawn mid-walk; carry on from where the token was.
+        runMotion(group, body, shadow, live.plan, now - live.start);
+      } else if (live) {
+        inflight.delete(key);
+      }
+    }
   });
   layoutCache.clear();
   nextLayout.forEach((value, key) => layoutCache.set(key, value));
+
+  // A capture lands with a ring that spreads from the square.
+  if (fx && fx.burst && !prefs.motion) {
+    const ring = el('circle', { cx: fx.burst[0], cy: fx.burst[1], r: 0.5, class: 'b-burst c-' + fx.skin });
+    ring.style.animationDelay = (fx.hop / 1000 - (now - fx.at) / 1000).toFixed(3) + 's';
+  }
 
   target.replaceChildren(svg);
   svg.addEventListener('click', (event) => {
@@ -894,7 +1058,8 @@ function renderGame() {
     ? (champion ? champion.name.toUpperCase() + ' WINS' : 'GAME OVER')
     : player.name.toUpperCase() + ' TO PLAY';
   $('turn-detail').textContent = over ? 'The game is complete' : game.awaitingMove ? 'Choose a token' : 'Roll the dice';
-  $('turn-banner').querySelector('.turn-dot').className = 'turn-dot color-' + (over ? (game.winner || player.id) : player.id);
+  $('turn-banner').querySelector('.turn-dot').className = 'turn-dot color-' + skinOf(over ? (game.winner || player.id) : player.id);
+  $('turn-banner').dataset.skin = skinOf(over ? (game.winner || player.id) : player.id);
   $('turn-banner').classList.toggle('is-waiting', !over && !state.local && player.id !== state.color);
 
   // The die travels to the home square of whoever is on turn.
@@ -902,7 +1067,14 @@ function renderGame() {
   const overlay = $('dice-overlay');
   if (overlay.dataset.seat !== seatFor) overlay.dataset.seat = seatFor;
 
-  if (!state.diceAnim) $('dice-face').textContent = game.dice ? DICE_FACES[game.dice] : '⚄';
+  overlay.style.setProperty('--die-accent', 'var(--' + skinOf(seatFor) + ')');
+  if (!state.diceAnim) setDieFace(game.dice || 5);
+
+  // A soft chime when the dice come to you.
+  if (!over && state.lastTurn !== player.id) {
+    if (state.lastTurn !== null && !state.local && player.id === state.color) sfx.turn();
+    state.lastTurn = player.id;
+  }
   $('dice-caption').textContent = over ? 'DONE' : game.awaitingMove ? 'PICK' : 'ROLL';
   $('dice-title').textContent = game.awaitingMove ? 'Choose your token' : 'Roll the dice';
   $('dice-subtitle').textContent = game.awaitingMove ? game.dice + ' spaces to move' : 'A six brings a token out';
@@ -921,16 +1093,18 @@ function renderGame() {
     const active = entry.id === player.id && !over;
     const you = !state.local && entry.id === state.color;
     const done = E.hasFinished(game, entry.id);
-    return '<div class="game-player' + (active ? ' active' : '') + (done ? ' finished' : '') + '" data-color="' + esc(entry.id) + '">' +
-      '<span class="seat-dot color-' + entry.id + '"></span>' +
+    const pips = [0, 1, 2, 3].map((n) => '<i' + (n < home ? ' class="on"' : '') + '></i>').join('');
+    return '<div class="game-player' + (active ? ' active' : '') + (done ? ' finished' : '') + '" data-color="' + esc(entry.id) + '" data-skin="' + skinOf(entry.id) + '">' +
+      '<span class="seat-dot color-' + skinOf(entry.id) + '"></span>' +
       '<div><b>' + esc(entry.name) + (you ? ' · YOU' : '') + (done ? ' · HOME' : '') + '</b>' +
+      '<span class="home-pips" role="img" aria-label="' + home + ' of 4 tokens home">' + pips + '</span>' +
       '<small>' + home + '/4 HOME · ' + entry.captures + ' CAPTURES</small></div>' +
       (active ? '<span class="turn-flag">TURN</span>' : '') + '</div>';
   }).join('');
   if (V) V.decorate();
 
-  board($('game-board'), game, mine && !over);
   cues(game);
+  board($('game-board'), game, mine && !over);
   noticeFinishes(game);
 
   const history = game.history.slice(-9).reverse();
@@ -976,7 +1150,7 @@ function result() {
     const place = standings.indexOf(entry) + 1;
     return '<div class="podium-item podium-' + place + '">' +
       '<span class="podium-medal">' + ['1ST', '2ND', '3RD'][place - 1] + '</span>' +
-      '<span class="seat-dot color-' + entry.id + '"></span>' +
+      '<span class="seat-dot color-' + skinOf(entry.id) + '"></span>' +
       '<b>' + esc(entry.name) + '</b>' +
       '<small>' + entry.home + '/4 HOME · ' + entry.captures + ' CAPT</small></div>';
   }).join('');
@@ -1007,7 +1181,7 @@ function result() {
 function addActivity(text, label, color) {
   const node = document.createElement('div');
   node.className = 'activity-item is-new';
-  node.innerHTML = '<small>' + esc(label) + '</small>' + (color ? '<span class="seat-dot color-' + color + '"></span> ' : '') + esc(text);
+  node.innerHTML = '<small>' + esc(label) + '</small>' + (color ? '<span class="seat-dot color-' + skinOf(color) + '"></span> ' : '') + esc(text);
   $('activity-list').prepend(node);
   setTimeout(() => node.classList.remove('is-new'), 400);
 }
@@ -1030,7 +1204,7 @@ function renderChat() {
   }
   list.innerHTML = state.chat.map((line) =>
     '<div class="chat-line' + (line.mine ? ' is-mine' : '') + '">' +
-      (line.color ? '<span class="seat-dot color-' + line.color + '"></span>' : '') +
+      (line.color ? '<span class="seat-dot color-' + skinOf(line.color) + '"></span>' : '') +
       '<b>' + esc(line.name) + '</b><span>' + esc(line.text) + '</span></div>'
   ).join('');
   list.scrollTop = list.scrollHeight;
@@ -1051,37 +1225,109 @@ function clearChatUnread() {
 
 /* ----------------------------------------------------------------- dice -- */
 
+// The die is a real cube: six faces of pips that turn in 3D.
+function buildDie() {
+  const die = $('dice-face');
+  if (!die || die.firstChild) return;
+  const cube = document.createElement('span');
+  cube.className = 'cube';
+  cube.id = 'die-cube';
+  for (let value = 1; value <= 6; value++) {
+    const face = document.createElement('i');
+    face.className = 'face f' + value;
+    for (let cell = 1; cell <= 9; cell++) {
+      const pip = document.createElement('b');
+      if (DIE_PIPS[value].includes(cell)) pip.className = 'pip';
+      face.appendChild(pip);
+    }
+    cube.appendChild(face);
+  }
+  die.appendChild(cube);
+  setDieFace(5);
+}
+function dieTransform(value) {
+  const turn = DIE_TURN[value] || DIE_TURN[5];
+  return 'rotateX(' + turn[0] + 'deg) rotateY(' + turn[1] + 'deg)';
+}
+function setDieFace(value) {
+  const cube = $('die-cube');
+  if (!cube) return;
+  cube.getAnimations().forEach((anim) => anim.cancel());
+  cube.style.transform = dieTransform(value);
+}
+
 function startDiceTumble() {
   stopDice();
-  const button = $('roll-dice');
-  button.classList.add('rolling');
-  state.diceAnim = { target: null, landed: 0, timer: null };
-  state.diceAnim.timer = setInterval(() => {
-    const anim = state.diceAnim;
-    if (!anim) return;
-    if (anim.target != null) {
-      anim.landed += 1;
-      if (anim.landed >= 4) { finishDice(anim.target); return; }
-    }
-    $('dice-face').textContent = DICE_FACES[1 + Math.floor(Math.random() * 6)];
-  }, 62);
+  sfx.roll();
+  const cube = $('die-cube');
+  const die = $('dice-face');
+  state.diceAnim = { target: null, start: performance.now(), anims: [], timer: null };
+  if (prefs.motion || !cube) return;
+  $('roll-dice').classList.add('rolling');
+  const a = Math.floor(Math.random() * 360), b = Math.floor(Math.random() * 360);
+  state.diceAnim.anims = [
+    cube.animate([
+      { transform: 'rotateX(' + a + 'deg) rotateY(' + b + 'deg) rotateZ(0deg)' },
+      { transform: 'rotateX(' + (a + 540) + 'deg) rotateY(' + (b + 720) + 'deg) rotateZ(180deg)' },
+    ], { duration: 620, iterations: Infinity, easing: 'linear' }),
+    die.animate([
+      { transform: 'translateY(0)' }, { transform: 'translateY(-16%)' }, { transform: 'translateY(0)' },
+    ], { duration: 310, iterations: Infinity, easing: 'ease-in-out' }),
+  ];
 }
 function landDice(value) {
-  if (!state.diceAnim) { $('dice-face').textContent = DICE_FACES[value] || '⚄'; return; }
-  state.diceAnim.target = value;
+  const anim = state.diceAnim;
+  if (!anim) { setDieFace(value); return; }
+  anim.target = value;
+  if (anim.timer) return;
+  // Let it tumble long enough to feel thrown, even when the answer is already known.
+  const wait = Math.max(0, TUMBLE_MIN - (performance.now() - anim.start));
+  anim.timer = setTimeout(() => settleDice(value), wait);
+}
+function settleDice(value) {
+  const anim = state.diceAnim;
+  if (!anim) return;
+  const cube = $('die-cube');
+  const die = $('dice-face');
+  if (prefs.motion || !cube) { finishDice(value); return; }
+  const from = getComputedStyle(cube).transform;
+  anim.anims.forEach((item) => item.cancel());
+  anim.anims = [
+    cube.animate([
+      { transform: from && from !== 'none' ? from : dieTransform(value) },
+      { transform: dieTransform(value) },
+    ], { duration: SETTLE_MS, easing: 'cubic-bezier(.2,.9,.3,1.12)', fill: 'forwards' }),
+    die.animate([
+      { offset: 0, transform: 'translateY(0) scale(1)' },
+      { offset: 0.3, transform: 'translateY(-26%) scale(1.06)' },
+      { offset: 0.55, transform: 'translateY(0) scale(.96, 1.04)' },
+      { offset: 0.76, transform: 'translateY(-7%) scale(1)' },
+      { offset: 1, transform: 'translateY(0) scale(1)' },
+    ], { duration: SETTLE_MS + 120, easing: 'ease-out' }),
+  ];
+  setTimeout(() => sfx.land(), SETTLE_MS * 0.5);
+  anim.timer = setTimeout(() => finishDice(value), SETTLE_MS + 80);
 }
 function finishDice(value) {
   stopDice();
-  $('dice-face').textContent = DICE_FACES[value] || '⚄';
+  setDieFace(value);
+  if (value === 6) sfx.six();
   const button = $('roll-dice');
-  button.classList.remove('rolling');
   button.classList.add('landed');
   setTimeout(() => button.classList.remove('landed'), 420);
 }
 function stopDice() {
-  if (state.diceAnim?.timer) clearInterval(state.diceAnim.timer);
+  const anim = state.diceAnim;
+  if (anim) { clearTimeout(anim.timer); anim.anims.forEach((item) => item.cancel()); }
   state.diceAnim = null;
   $('roll-dice').classList.remove('rolling');
+}
+
+// Local and computer rolls hold back the result until the die has landed.
+function afterDice(fn) {
+  state.rolling = true;
+  const wait = prefs.motion ? 0 : TUMBLE_MIN + SETTLE_MS + 40;
+  setTimeout(() => { state.rolling = false; if (state.game) fn(); }, wait);
 }
 
 /* ---------------------------------------------------------------- audio cues -- */
@@ -1092,11 +1338,37 @@ function cues(game) {
   if (length === state.seenLen) return;
   const entry = game.history[length - 1];
   state.seenLen = length;
-  if (!prefs.sound) return;
-  if (game.status === 'finished') sfx.win();
-  else if (entry.type === 'move') (entry.captured && entry.captured.length) ? sfx.capture() : (entry.enteredHome ? sfx.bonus() : sfx.move());
-  else if (entry.type === 'roll') sfx.roll();
-  else sfx.pen();
+  const over = game.status === 'finished';
+
+  if (entry.type === 'move') {
+    const entering = entry.from === -1;
+    const steps = entering ? 1 : Math.max(1, entry.to - entry.from);
+    const timing = entering ? { step: 520, total: 520 } : hopTiming(steps);
+    const seat = entry.player;
+    const trail = [];
+    if (entering) trail.push(coordFor(seat, 0));
+    else for (let p = entry.from + 1; p <= entry.to; p++) if (p < E.FINISH_PROGRESS) trail.push(coordFor(seat, p));
+    const captured = !!(entry.captured && entry.captured.length);
+    state.fx = {
+      at: performance.now(), skin: skinOf(seat), trail, step: timing.step, hop: timing.total,
+      burst: captured && trail.length ? trail[trail.length - 1] : null,
+    };
+    const calm = prefs.motion;
+    if (entering) sfx.enter();
+    else if (!calm) for (let i = 0; i < steps; i++) setTimeout(() => sfx.step(i), (i + 0.86) * timing.step);
+    const end = calm ? 0 : timing.total;
+    setTimeout(() => {
+      if (captured) { sfx.capture(); sfx.sentHome(); }
+      else if (entry.finished) sfx.finish();
+      else if (entry.enteredHome) sfx.bonus();
+      else if (!entering && entry.to < E.HOME_ENTRY_PROGRESS && E.SAFE_TRACK.has(E.globalTrackIndex(seat, entry.to))) sfx.safe();
+      if (over) setTimeout(() => sfx.win(), 500);
+    }, end);
+    return;
+  }
+  if (over) { sfx.win(); return; }
+  if (entry.type === 'three-sixes-penalty') sfx.penalty();
+  else if (entry.type === 'no-move') sfx.noMove();
 }
 
 /* --------------------------------------------------------------- actions -- */
@@ -1110,7 +1382,7 @@ async function createRoom() {
   button.classList.add('is-busy');
   try {
     await connect();
-    send('room.create', { name, voice });
+    send('room.create', { name, voice, skin: savedSkin() });
   } catch (error) {
     toast(error.message || 'Could not reach the game server', 'error');
   } finally {
@@ -1131,7 +1403,7 @@ async function joinRoomFlow(code) {
   try {
     await connect();
     const token = localStorage.getItem('parcheesi:' + invite);
-    send('room.join', { invite, playerToken: token, name: typedName });
+    send('room.join', { invite, playerToken: token, name: typedName, skin: savedSkin() });
   } catch (error) {
     showJoinError(error.message || 'Could not reach the game server');
   }
@@ -1160,7 +1432,12 @@ async function startLocalGame(mode) {
   state.color = 'red';
   state.resultRecorded = false;
   state.finishedSeen = [];
+  state.skins = setup.skins || {};
+  state.fx = null;
+  state.lastTurn = null;
+  state.rolling = false;
   layoutCache.clear();
+  inflight.clear();
   state.game = E.initialState({ players: ids, names, kinds, difficulties });
   state.activity = [];
   renderGame();
@@ -1203,7 +1480,7 @@ function move(index) {
 }
 
 function roll() {
-  if ($('roll-dice').disabled) return;
+  if ($('roll-dice').disabled || state.rolling) return;
   if (state.local) {
     const value = 1 + Math.floor(Math.random() * 6);
     startDiceTumble();
@@ -1215,9 +1492,7 @@ function roll() {
       return;
     }
     landDice(value);
-    renderGame();
-    maybeAutoMove();
-    maybeAI();
+    afterDice(() => { renderGame(); maybeAutoMove(); maybeAI(); });
     return;
   }
   startDiceTumble();
@@ -1233,17 +1508,25 @@ function maybeAI() {
   const delay = state.aiDifficulty === 'hard' ? 900 : state.aiDifficulty === 'easy' ? 520 : 680;
   aiTimer = setTimeout(() => {
     if (!state.game || state.game.status !== 'playing') return;
+    const finish = () => {
+      renderGame();
+      if (state.game.status === 'finished') result();
+      else { maybeAutoMove(); maybeAI(); }
+    };
+    let rolled = false;
     try {
       if (state.game.awaitingMove) {
         const choice = E.chooseAIMove(state.game, Math.random, state.aiDifficulty);
         if (choice !== null) state.game = E.applyMove(state.game, choice);
       } else {
-        state.game = E.applyRoll(state.game, 1 + Math.floor(Math.random() * 6));
+        const value = 1 + Math.floor(Math.random() * 6);
+        startDiceTumble();
+        state.game = E.applyRoll(state.game, value);
+        landDice(value);
+        rolled = true;
       }
     } catch { /* the table changed under us; the next tick will sort it out */ }
-    renderGame();
-    if (state.game.status === 'finished') result();
-    else { maybeAutoMove(); maybeAI(); }
+    if (rolled) afterDice(finish); else finish();
   }, delay);
 }
 
@@ -1493,7 +1776,22 @@ function init() {
   fillForm(prefs);
   syncAvatar();
   confetti.init();
+  buildDie();
   preview();
+
+  // Pick a token colour in the lobby.
+  $('skin-picker').addEventListener('click', (event) => {
+    const swatch = event.target.closest('.swatch[data-skin]');
+    if (!swatch || swatch.disabled) return;
+    saveSkin(swatch.dataset.skin);
+    send('lobby.skin', { skin: swatch.dataset.skin });
+  });
+  // A soft tap under every button, except the dice and the board which make their own noise.
+  document.addEventListener('click', (event) => {
+    const control = event.target.closest('button, .menu-item');
+    if (!control || control.id === 'roll-dice' || control.disabled) return;
+    sfx.click();
+  });
 
   const last = readJSON('parcheesi.lastRoom', null);
   const linked = location.pathname.match(/^\/room\/([a-zA-Z0-9_-]+)$/);
@@ -1535,7 +1833,7 @@ async function resumeRoom(invite, token) {
   state.resuming = true;
   try {
     await connect();
-    send('room.join', { invite, playerToken: token, name: playerName() });
+    send('room.join', { invite, playerToken: token, name: playerName(), skin: savedSkin() });
   } catch {
     state.resuming = false;
   }
