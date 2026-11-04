@@ -1,4 +1,5 @@
 import "../engine/ludo.js";
+import { ChessHub } from "./chess.js";
 
 const ENGINE = globalThis.LudoEngine;
 const HUB_NAME = "global-room-hub";
@@ -64,6 +65,8 @@ function peerFor(ws) {
     }
   };
 }
+
+export { ChessHub };
 
 export class RoomHub {
   constructor(ctx, env) {
@@ -411,6 +414,11 @@ export default {
     }
     if (url.pathname === "/api/config") {
       return Response.json({ publicUrl: url.origin }, { headers: { "cache-control": "no-store" } });
+    }
+    if (url.pathname === "/chess-ws") {
+      if (request.headers.get("Upgrade") !== "websocket") return new Response("Expected WebSocket", { status: 426 });
+      const id = env.CHESS_HUB.idFromName("global-chess-hub");
+      return env.CHESS_HUB.get(id).fetch(request);
     }
     if (url.pathname === "/ws") {
       if (request.headers.get("Upgrade") !== "websocket") return new Response("Expected WebSocket", { status: 426 });
