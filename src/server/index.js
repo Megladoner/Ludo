@@ -24,7 +24,10 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && url.pathname === '/api/config') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ publicUrl: process.env.PUBLIC_URL || `http://${req.headers.host}` })); return; }
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, { allow: 'GET, HEAD' }); res.end(); return; }
   let pathname = decodeURIComponent(url.pathname);
-  if (pathname === '/' || /^\/room\/[a-zA-Z0-9_-]+$/.test(pathname)) pathname = '/index.html';
+  if (pathname === '/') pathname = '/home.html';
+  else if (pathname === '/ludo') pathname = '/index.html';
+  else if (/^\/room\/[a-zA-Z0-9_-]+$/.test(pathname)) pathname = '/index.html';
+  else if (pathname === '/chess') pathname = '/chess.html';
   if (pathname === '/engine.js') pathname = '/../src/engine/ludo.js';
   const file = path.resolve(ROOT, `.${pathname}`);
   const allowed = file.startsWith(ROOT + path.sep) || file === path.resolve(ROOT, '../src/engine/ludo.js');
@@ -32,7 +35,7 @@ const server = http.createServer((req, res) => {
   fs.readFile(file, (error, data) => {
     if (error) { res.writeHead(404); res.end('Not found'); return; }
     const ext = path.extname(file);
-    res.writeHead(200, { 'content-type': MIME[ext] || 'application/octet-stream', 'cache-control': ext === '.html' ? 'no-cache' : 'public, max-age=3600', 'x-content-type-options': 'nosniff', 'referrer-policy': 'strict-origin-when-cross-origin', 'content-security-policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" });
+    res.writeHead(200, { 'content-type': MIME[ext] || 'application/octet-stream', 'cache-control': ext === '.html' ? 'no-cache' : 'public, max-age=3600', 'x-content-type-options': 'nosniff', 'referrer-policy': 'strict-origin-when-cross-origin', 'content-security-policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self' https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" });
     if (req.method === 'HEAD') res.end(); else res.end(data);
   });
 });
