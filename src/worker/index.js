@@ -1,4 +1,5 @@
 import "../engine/ludo.js";
+import { ChessRoom, chessCode, normalizeCode } from "./chess-room.js";
 
 const ENGINE = globalThis.LudoEngine;
 const HUB_NAME = "global-room-hub";
@@ -403,9 +404,68 @@ export class RoomHub {
   }
 }
 
+export { ChessRoom };
+
+// Chess room creation is rate limited per IP inside this isolate (best effort; each room
+// also enforces its own limits).
+const createHits = new Map();
+function createAllowed(ip) {
+  const now = Date.now();
+  const hit = createHits.get(ip) || { start: now, count: 0 };
+  if (now - hit.start > 60000) { hit.start = now; hit.count = 0; }
+  hit.count++;
+  createHits.set(ip, hit);
+  if (createHits.size > 5000) createHits.clear();
+  return hit.count <= 12;
+}
+function chessStub(env, code) { return env.CHESS_ROOM.get(env.CHESS_ROOM.idFromName(code)); }
+// Pages that are one chess app: /chess, /chess/local, /chess/computer, /chess/room/CODE
+const CHESS_PAGE = /^\/chess\/(local|computer|room\/[A-Za-z0-9_-]+)\/?$/;
+const LUDO_ROOM_PAGE = /^\/room\/[A-Za-z0-9_-]+\/?$/;
+
+async function chessApi(request, env, url) {
+  if (url.pathname === "/api/chess/create") {
+    if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
+    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+    if (!createAllowed(ip)) return Response.json({ error: "Too many rooms created. Please wait a minute." }, { status: 429 });
+    let body = {};
+    try { body = await request.json(); } catch {}
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const code = chessCode(8);
+      const res = await chessStub(env, code).fetch("https://room/init", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code, name: body.name, voice: body.voice === true, tc: body.tc, side: body.side }),
+      });
+      if (res.status === 409) continue;
+      if (!res.ok) break;
+      return Response.json(await res.json(), { headers: { "cache-control": "no-store" } });
+    }
+    return Response.json({ error: "Could not create a room" }, { status: 500 });
+  }
+  const match = url.pathname.match(/^\/api\/chess\/room\/([A-Za-z0-9_-]+)$/);
+  if (match && request.method === "GET") {
+    const code = normalizeCode(match[1]);
+    if (code.length !== 8) return Response.json({ exists: false }, { headers: { "cache-control": "no-store" } });
+    const res = await chessStub(env, code).fetch("https://room/status");
+    return Response.json(await res.json(), { headers: { "cache-control": "no-store" } });
+  }
+  return new Response("Not found", { status: 404 });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/api/chess/")) return chessApi(request, env, url);
+    const wsChess = url.pathname.match(/^\/ws\/chess\/([A-Za-z0-9_-]+)$/);
+    if (wsChess) {
+      if (request.headers.get("Upgrade") !== "websocket") return new Response("Expected WebSocket", { status: 426 });
+      const code = normalizeCode(wsChess[1]);
+      if (code.length !== 8) return new Response("Room not found", { status: 404 });
+      return chessStub(env, code).fetch(request);
+    }
+    // Page routes that the static asset layer cannot know about.
+    if (CHESS_PAGE.test(url.pathname)) return env.ASSETS.fetch(new Request(new URL("/chess/", url), request));
+    if (LUDO_ROOM_PAGE.test(url.pathname)) return env.ASSETS.fetch(new Request(new URL("/ludo/", url), request));
     if (url.pathname === "/health") {
       return Response.json({ ok: true, service: "parcheesi-cloudflare", time: Date.now() }, { headers: { "cache-control": "no-store" } });
     }

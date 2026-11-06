@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#000000"><meta name="description" content="PARCHEESI Chess — play a friend, the computer, or share a screen. Clocks, analysis and three board themes.">
+  <link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/chess/chess.css">
+  <script src="/chess/boot.js"></script>
+  <title>Chess — PARCHEESI</title>
+</head>
+<body class="chess-page">
+  <a class="skip-link" href="#app">Skip to content</a>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="PARCHEESI — all games"><span class="brand-mark"><i></i><i></i><i></i><i></i></span><span>PARCHEESI</span></a>
+      <nav class="topbar-right" aria-label="Site">
+        <a class="text-button ch-games-link" href="/">All games</a>
+        <span class="online-indicator" id="network-status"><i></i><span id="network-label">READY TO PLAY</span></span>
+        <button class="icon-button" id="sound-toggle" type="button" aria-label="Sound" aria-pressed="true" title="Sound"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path id="sound-waves" d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
+        <button class="icon-button" id="settings-open" type="button" aria-label="Chess settings" title="Settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+      </nav>
+    </header>
+
+    <main id="app" class="main-content" tabindex="-1">
+      <!-- ------------------------------------------------------------ menu -->
+      <section id="menu-view" class="view ch-menu" aria-labelledby="menu-title">
+        <div class="ch-menu-layout">
+          <div class="home-column">
+            <div class="hero-copy"><p class="eyebrow">THE ROYAL GAME</p><h1 id="menu-title">Think slowly.<br><span>Play beautifully.</span></h1><p class="hero-sub">Sixty-four squares, a real engine, and a clock that never lies. Play a friend, test yourself, or share one screen.</p></div>
+            <div class="home-actions">
+              <button class="action-card action-primary" id="m-friends" type="button"><span class="action-icon">↗</span><span><b>Play with friends</b><small>Create a room and share the link.</small></span><span class="action-arrow">→</span></button>
+              <button class="action-card" id="m-join" type="button"><span class="action-icon">⌁</span><span><b>Join a room</b><small>Have a room code or link?</small></span><span class="action-arrow">→</span></button>
+              <button class="action-card action-resume" id="m-resume" type="button" hidden><span class="action-icon">↺</span><span><b>Resume your game</b><small id="m-resume-detail">Pick up where you left off</small></span><span class="action-arrow">→</span></button>
+              <div class="action-pair"><button class="mini-action" id="m-computer" type="button"><span>♞</span><b>Play the computer</b><small>Seven levels, powered by Stockfish</small></button><button class="mini-action" id="m-local" type="button"><span>♟</span><b>Pass &amp; play</b><small>Two players, one device</small></button></div>
+              <div class="home-foot"><span>CLOCKS · ANALYSIS · THREE THEMES</span><a class="text-button" href="/">All games <span>↗</span></a></div>
+            </div>
+          </div>
+          <div class="preview-wrap ch-preview"><div class="preview-label"><span>THE BOARD IS YOURS</span><span id="pv-theme">NOIR</span></div><div class="ch-preview-board" id="menu-board" aria-hidden="true"></div><div class="preview-caption"><span>01 / A QUIET OPENING</span><span>YOUR MOVE.</span></div></div>
+        </div>
+      </section>
+
+      <!-- ----------------------------------------------------------- lobby -->
+      <section id="lobby-view" class="view hidden" aria-labelledby="lobby-heading">
+        <div class="section-heading"><button class="back-button" id="lobby-back" type="button" aria-label="Back to chess menu">←</button><div><p class="eyebrow">PRIVATE ROOM</p><h2 id="lobby-heading">Waiting for your opponent.</h2></div><span class="room-status" id="lobby-status">WAITING FOR AN OPPONENT</span></div>
+        <div class="lobby-grid">
+          <div class="lobby-main">
+            <div class="room-code-panel"><div><p class="eyebrow">ROOM CODE</p><strong id="room-code">—</strong><small>Send the link to a friend. The room stays open if either of you refreshes.</small></div><div class="invite-actions"><button class="button button-light" id="copy-invite" type="button">Copy link</button><button class="button button-quiet" id="copy-code" type="button">Copy code</button><button class="button button-quiet" id="share-invite" type="button">Share ↗</button></div></div>
+            <div class="player-grid" id="player-grid"></div>
+            <div class="voice-bar voice-bar-lobby" hidden><div class="voice-status"><span class="voice-pulse" aria-hidden="true"></span><div class="voice-text"><b data-voice-title>Voice chat</b><small data-voice-sub>Talk with your opponent</small></div></div><div class="voice-actions"><button type="button" class="voice-btn voice-btn-main" data-voice="join"></button><button type="button" class="voice-btn" data-voice="mute" aria-pressed="false" hidden></button><button type="button" class="voice-btn voice-btn-leave" data-voice="leave" hidden>Leave</button></div></div>
+            <div class="setup-block"><b>Your side</b><small id="side-hint">The host decides. Random is picked when the game starts.</small>
+              <div class="segmented" id="lobby-side" role="radiogroup" aria-label="Host side"><button type="button" data-side="white" role="radio" aria-checked="false">White</button><button type="button" data-side="random" role="radio" aria-checked="true">Random</button><button type="button" data-side="black" role="radio" aria-checked="false">Black</button></div></div>
+            <div class="setup-block"><b>Time control</b><small id="tc-hint">Both clocks start after each player has moved once.</small>
+              <div class="ch-tc-grid" id="lobby-tc" role="radiogroup" aria-label="Time control"></div></div>
+            <div class="lobby-bottom"><p id="lobby-hint">Waiting for the rest of your table.</p><div class="lobby-buttons"><button class="button button-quiet" id="rename-self" type="button">Change name</button><button class="button button-quiet" id="close-room" type="button" hidden>Close room</button><button class="button button-primary" id="start-game" type="button" disabled>Start game <span>→</span></button></div></div>
+          </div>
+          <aside class="lobby-aside"><p class="eyebrow">THE ROOM</p><h3>Chess, standard rules.</h3><p>Every move is checked by the server. Clocks are the server's clocks, so a refresh never changes the time.</p>
+            <div class="rule-line"><span>PLAYERS</span><b>2</b></div><div class="rule-line"><span>TIME</span><b id="rule-tc">—</b></div><div class="rule-line"><span>HOST PLAYS</span><b id="rule-side">—</b></div><div class="rule-line" id="rule-voice" hidden><span>VOICE CHAT</span><b>ON</b></div><div class="rule-line"><span>ROOM KEPT FOR</span><b>24 HOURS</b></div></aside>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------------------ game -->
+      <section id="game-view" class="view hidden" aria-labelledby="game-title">
+        <div class="game-topline"><button class="back-button" id="g-back" type="button" aria-label="Leave this game">←</button><div><p class="eyebrow" id="g-mode">PASS &amp; PLAY</p><h2 id="game-title">Your game.</h2></div><div class="game-top-actions"><span class="connection-pill is-ready" id="conn-pill"><i></i> LOCAL</span><button class="button button-quiet" id="g-menu" type="button" aria-label="Game menu" aria-haspopup="dialog">•••</button></div></div>
+        <div class="ch-layout">
+          <div class="ch-board-col" id="ch-players">
+            <div class="ch-player" id="pl-top" data-color=""><span class="ch-side-dot" aria-hidden="true"></span><div class="ch-pinfo"><b class="ch-pname"></b><small class="ch-pmeta"></small></div><div class="ch-captured" aria-label="Captured pieces"></div><div class="ch-clock" role="timer" aria-live="off"><span class="ch-clock-time">--:--</span></div></div>
+            <div class="ch-board-wrap" id="board-wrap">
+              <div class="ch-evalbar" id="evalbar" hidden aria-hidden="true"><div class="ch-evalbar-fill"></div><span class="ch-evalbar-label">0.0</span></div>
+              <div class="ch-board" id="board" tabindex="0" role="application" aria-label="Chessboard. Use the arrow keys to move around, Enter to pick up or put down a piece."></div>
+              <div class="ch-banner" id="board-banner" hidden></div>
+            </div>
+            <div class="ch-player" id="pl-bottom" data-color=""><span class="ch-side-dot" aria-hidden="true"></span><div class="ch-pinfo"><b class="ch-pname"></b><small class="ch-pmeta"></small></div><div class="ch-captured" aria-label="Captured pieces"></div><div class="ch-clock" role="timer" aria-live="off"><span class="ch-clock-time">--:--</span></div></div>
+            <div class="ch-status" id="status-line" role="status" aria-live="polite"></div>
+            <div class="sr-only" id="sr-live" role="status" aria-live="assertive"></div>
+          </div>
+
+          <aside class="ch-side">
+            <div class="ch-tabs" role="tablist" aria-label="Game panels"><button type="button" role="tab" id="tab-btn-moves" data-tab="moves" aria-selected="true" aria-controls="tab-moves">Moves</button><button type="button" role="tab" id="tab-btn-chat" data-tab="chat" aria-selected="false" aria-controls="tab-chat">Chat <span class="chat-badge" id="chat-badge" hidden>0</span></button></div>
+            <section class="ch-panel ch-panel-moves is-active" id="tab-moves" role="tabpanel" aria-labelledby="tab-btn-moves">
+              <div class="panel-heading"><span id="moves-heading">MOVES</span><span class="panel-heading-end"><span class="live-dot" id="live-dot">LIVE</span></span></div>
+              <div class="ch-moves" id="move-list" tabindex="0" aria-label="Move list"></div>
+              <div class="ch-nav" role="group" aria-label="Review moves"><button class="icon-button" id="nav-first" type="button" aria-label="First position" title="First (Home)">⏮</button><button class="icon-button" id="nav-prev" type="button" aria-label="Previous move" title="Previous (←)">◀</button><button class="icon-button" id="nav-next" type="button" aria-label="Next move" title="Next (→)">▶</button><button class="icon-button" id="nav-last" type="button" aria-label="Latest position" title="Latest (End)">⏭</button><button class="icon-button" id="flip-board" type="button" aria-label="Flip the board" title="Flip board (F)">⇅</button></div>
+              <div class="ch-offer" id="draw-banner" hidden><span id="draw-text">Your opponent offers a draw.</span><div><button class="button button-primary" id="draw-accept" type="button">Accept</button><button class="button button-quiet" id="draw-decline" type="button">Decline</button></div></div>
+              <div class="ch-controls" id="controls"><button class="button" id="btn-abort" type="button" hidden>Abort</button><button class="button button-danger" id="btn-resign" type="button" hidden>Resign</button><button class="button" id="btn-draw" type="button" hidden>Offer draw</button><button class="button button-quiet" id="btn-claim" type="button" hidden>Claim win</button></div>
+              <div class="ch-result" id="result-card" hidden><p class="eyebrow" id="result-eyebrow">GAME OVER</p><h3 id="result-title">Checkmate.</h3><p id="result-sub"></p><div class="ch-result-actions"><button class="button button-primary" id="btn-analyze" type="button">Analyze game</button><button class="button" id="btn-rematch" type="button">Rematch</button><button class="button button-quiet" id="btn-newgame" type="button">New game</button></div></div>
+              <div class="ch-analysis" id="analysis-box" hidden>
+                <div class="ch-an-head"><b>Game analysis</b><button class="button button-quiet" id="an-close" type="button">Close</button></div>
+                <div class="ch-an-progress" id="an-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="an-bar"></span></div>
+                <p class="ch-an-note" id="an-note">Analyzing with Stockfish…</p>
+                <div class="ch-an-graph" id="an-graph" aria-hidden="true"></div>
+                <div class="ch-an-now" id="an-now"></div>
+                <div class="ch-an-summary" id="an-summary"></div>
+              </div>
+            </section>
+            <section class="ch-panel chat-panel" id="tab-chat" role="tabpanel" aria-labelledby="tab-btn-chat">
+              <div class="panel-heading"><span>ROOM CHAT</span></div>
+              <div class="voice-bar voice-bar-chat" hidden><div class="voice-status"><span class="voice-pulse" aria-hidden="true"></span><div class="voice-text"><b data-voice-title>Voice chat</b><small data-voice-sub>Talk with your opponent</small></div></div><div class="voice-actions"><button type="button" class="voice-btn voice-btn-main" data-voice="join"></button><button type="button" class="voice-btn" data-voice="mute" aria-pressed="false" hidden></button><button type="button" class="voice-btn voice-btn-leave" data-voice="leave" hidden>Leave</button></div></div>
+              <div class="chat-list ch-chat-list" id="chat-list" aria-live="polite"><p class="empty-chat">Say hello. Chat stays out of the way of the board.</p></div>
+              <label class="sr-only" for="chat-input">Send a message to your opponent</label>
+              <div class="chat-compose"><input id="chat-input" maxlength="240" placeholder="Say something…" autocomplete="off"><button id="chat-send" type="button" aria-label="Send message"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div>
+            </section>
+          </aside>
+        </div>
+      </section>
+    </main>
+    <div id="voice-audio" hidden aria-hidden="true"></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <!-- Local / computer setup -->
+    <dialog id="setup-dialog" class="modal modal-wide" aria-labelledby="setup-heading">
+      <form method="dialog" class="modal-inner" id="setup-form">
+        <button class="modal-close" type="button" aria-label="Close" data-close>×</button>
+        <p class="eyebrow" id="setup-eyebrow">NEW GAME</p><h2 id="setup-heading">Set up the board.</h2>
+        <div class="setup-block" id="setup-level-block" hidden><b>Computer level</b><small id="level-hint">Stockfish, tuned to a playing strength.</small>
+          <div class="ch-levels" id="setup-levels" role="radiogroup" aria-label="Computer level"></div></div>
+        <div class="setup-block"><b id="setup-side-title">You play</b>
+          <div class="segmented" id="setup-side" role="radiogroup" aria-label="Side"><button type="button" data-side="white" role="radio" aria-checked="false">White</button><button type="button" data-side="random" role="radio" aria-checked="true">Random</button><button type="button" data-side="black" role="radio" aria-checked="false">Black</button></div></div>
+        <div class="setup-block"><b>Time control</b><small>Clocks start once each side has moved.</small><div class="ch-tc-grid" id="setup-tc" role="radiogroup" aria-label="Time control"></div></div>
+        <div class="setting-row" id="setup-flip-row"><label for="setup-autoflip"><b>Turn the board each move</b><small>Hand the device across: the board faces the player to move.</small></label><input type="checkbox" class="switch" id="setup-autoflip"></div>
+        <p class="dialog-error" id="setup-error" role="alert" hidden></p>
+        <div class="modal-actions"><button type="button" class="button button-quiet" data-close>Cancel</button><button type="submit" class="button button-primary" id="setup-confirm">Start game →</button></div>
+      </form>
+    </dialog>
+
+    <!-- Create an online room -->
+    <dialog id="create-dialog" class="modal modal-wide" aria-labelledby="create-heading">
+      <form method="dialog" class="modal-inner" id="create-form">
+        <button class="modal-close" type="button" aria-label="Close" data-close>×</button>
+        <p class="eyebrow">NEW ROOM</p><h2 id="create-heading">Play with a friend.</h2>
+        <label class="field"><span class="field-label">YOUR NAME</span><input id="create-name" autocomplete="name" placeholder="Player" maxlength="20" required></label>
+        <div class="setup-block"><b>You play</b><div class="segmented" id="create-side" role="radiogroup" aria-label="Side"><button type="button" data-side="white" role="radio" aria-checked="false">White</button><button type="button" data-side="random" role="radio" aria-checked="true">Random</button><button type="button" data-side="black" role="radio" aria-checked="false">Black</button></div></div>
+        <div class="setup-block"><b>Time control</b><div class="ch-tc-grid" id="create-tc" role="radiogroup" aria-label="Time control"></div></div>
+        <div class="setting-row voice-option"><label for="create-voice"><b>Enable voice chat</b><small>Lets both players talk during the game. Fixed for this room; off unless you switch it on.</small></label><input type="checkbox" class="switch" id="create-voice"></div>
+        <p class="dialog-error" id="create-error" role="alert" hidden></p>
+        <div class="modal-actions"><button type="button" class="button button-quiet" data-close>Cancel</button><button type="submit" class="button button-primary" id="create-confirm">Create room →</button></div>
+      </form>
+    </dialog>
+
+    <!-- Join by code, or confirm a name for a shared link -->
+    <dialog id="join-dialog" class="modal" aria-labelledby="join-heading">
+      <form method="dialog" class="modal-inner" id="join-form">
+        <button class="modal-close" type="button" aria-label="Close" data-close>×</button>
+        <p class="eyebrow">YOU'RE INVITED</p><h2 id="join-heading">Join a game.</h2>
+        <p class="modal-note" id="join-note">Enter the room code your friend shared with you.</p>
+        <label class="field" id="join-code-field"><span class="field-label">ROOM CODE</span><input id="join-code" autocomplete="off" placeholder="ABCD2345" maxlength="40" spellcheck="false" autocapitalize="characters"></label>
+        <label class="field"><span class="field-label">YOUR NAME</span><input id="join-name" autocomplete="name" placeholder="Player" maxlength="20"></label>
+        <p class="dialog-error" id="join-error" role="alert" hidden></p>
+        <div class="modal-actions"><button type="button" class="button button-quiet" data-close>Cancel</button><button type="submit" class="button button-primary" id="join-confirm">Join room →</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="name-dialog" class="modal modal-narrow" aria-labelledby="name-heading">
+      <form method="dialog" class="modal-inner" id="name-form">
+        <button class="modal-close" type="button" aria-label="Close" data-close>×</button>
+        <p class="eyebrow">YOUR SEAT</p><h2 id="name-heading">Your name.</h2>
+        <label class="field"><span class="field-label">DISPLAY NAME</span><input id="name-input" autocomplete="name" maxlength="20" required></label>
+        <div class="modal-actions"><button type="button" class="button button-quiet" data-close>Cancel</button><button type="submit" class="button button-primary">Save</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="menu-dialog" class="modal" aria-labelledby="menu-heading">
+      <div class="modal-inner">
+        <button class="modal-close" type="button" aria-label="Close" data-close>×</button>
+        <p class="eyebrow">GAME MENU</p><h2 id="menu-heading">While you play.</h2>
+        <div class="menu-list">
+          <button type="button" class="menu-item" id="menu-copy"><span aria-hidden="true">⧉</span><div><b>Copy room link</b><small>Share the room with a friend</small></div></button>
+          <button type="button" class="menu-item" id="menu-theme"><span aria-hidden="true">◐</span><div><b>Board theme</b><small id="menu-theme-state">Noir</small></div></button>
+          <button type="button" class="menu-item" id="menu-sound"><span aria-hidden="true">♪</span><div><b>Sound effects</b><small id="menu-sound-state">On</small></div></button>
+          <button type="button" class="menu-item" id="menu-flip"><span aria-hidden="true">⇅</span><div><b>Flip the board</b><small>View from the other side</small></div></button>
+          <button type="button" class="menu-item" id="menu-fullscreen"><span aria-hidden="true">⛶</span><div><b>Full screen</b><small>Give the board the whole display</small></div></button>
+          <button type="button" class="menu-item" id="menu-restart"><span aria-hidden="true">↺</span><div><b>New game</b><small>Set up another match</small></div></button>
+          <button type="button" class="menu-item menu-item-danger" id="menu-leave"><span aria-hidden="true">⤶</span><div><b>Leave the game</b><small id="menu-leave-note">Return to the chess menu</small></div></button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="confirm-dialog" class="modal modal-narrow" aria-labelledby="confirm-heading">
+      <form method="dialog" class="modal-inner" id="confirm-form">
+        <button class="modal-close" type="button" aria-label="Close" data-close>×</button>
+        <p class="eyebrow" id="confirm-eyebrow">ARE YOU SURE</p><h2 id="confirm-heading">Resign?</h2>
+        <p class="modal-note" id="confirm-body"></p>
+        <div class="modal-actions"><button type="button" class="button button-quiet" id="confirm-cancel">Cancel</button><button type="submit" class="button button-primary" id="confirm-ok">Confirm</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="settings-dialog" class="modal" aria-labelledby="settings-heading">
+      <form method="dialog" class="modal-inner">
+        <button class="modal-close" type="button" aria-label="Close" data-close>×</button>
+        <p class="eyebrow">YOUR BOARD, YOUR WAY</p><h2 id="settings-heading">Chess settings.</h2>
+        <div class="setting-block"><b>Theme</b><small>Recolours the whole chess experience. Saved on this device.</small>
+          <div class="theme-picker" role="radiogroup" aria-label="Chess theme">
+            <label class="theme-opt"><input type="radio" name="ctheme" value="noir"><span class="ch-swatch ch-swatch-noir"><i></i><i></i><i></i><i></i></span><b>Noir</b></label>
+            <label class="theme-opt"><input type="radio" name="ctheme" value="classic"><span class="ch-swatch ch-swatch-classic"><i></i><i></i><i></i><i></i></span><b>Classic</b></label>
+            <label class="theme-opt"><input type="radio" name="ctheme" value="forest"><span class="ch-swatch ch-swatch-forest"><i></i><i></i><i></i><i></i></span><b>Forest</b></label>
+          </div></div>
+        <div class="setting-row"><label for="set-sound"><b>Sound effects</b><small>Moves, captures, check and the clock</small></label><input type="checkbox" class="switch" id="set-sound"></div>
+        <div class="setting-row setting-volume"><label for="set-volume"><b>Volume</b><small>Master level for every effect</small></label><input type="range" class="range" id="set-volume" min="0" max="100" step="5"></div>
+        <div class="setting-row"><label for="set-motion"><b>Reduced motion</b><small>Pieces jump instead of gliding</small></label><input type="checkbox" class="switch" id="set-motion"></div>
+        <div class="setting-row"><label for="set-coords"><b>Board coordinates</b><small>Files and ranks along the edge</small></label><input type="checkbox" class="switch" id="set-coords"></div>
+        <div class="setting-row"><label for="set-legal"><b>Show legal moves</b><small>Dots on every square the piece can reach</small></label><input type="checkbox" class="switch" id="set-legal"></div>
+        <div class="setting-row"><label for="set-queen"><b>Always promote to a queen</b><small>Skip the piece picker</small></label><input type="checkbox" class="switch" id="set-queen"></div>
+      </form>
+    </dialog>
+  </div>
+  <script src="/audio.js" defer></script><script src="/profile.js" defer></script><script src="/voice.js" defer></script>
+  <script src="/chess/core.js"></script>
+  <script type="module" src="/chess/app.js"></script>
+</body></html>

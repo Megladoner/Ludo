@@ -7,17 +7,21 @@
     "dev": "node src/server/index.js",
     "start": "NODE_ENV=production node src/server/index.js",
     "test": "node --test",
-    "check": "node --check src/server/index.js && node --check src/server/rooms.js && node --check src/server/websocket.js && node --check src/engine/ludo.js && node --check src/worker/index.js && node --check public/engine.js && node --check public/app.js && node --check public/boot.js && node --check public/profile.js && node --check public/voice.js && node --check public/audio.js && node --check public/sw.js && node -e \"if(require('fs').readFileSync('src/engine/ludo.js','utf8')!==require('fs').readFileSync('public/engine.js','utf8'))process.exit(1)\" && node -e \"const fs=require('fs');const h=fs.readFileSync('public/index.html','utf8');if(!/src=\\\"\\/boot.js\\\"/.test(h))process.exit(1);if(/style=\\\"/.test(h))process.exit(1)\"",
+    "check": "node --check src/server/index.js && node --check src/server/rooms.js && node --check src/server/websocket.js && node --check src/engine/ludo.js && node --check src/chess/core.js && node --check src/worker/index.js && node --check src/worker/chess-room.js && node --check public/engine.js && node --check public/app.js && node --check public/boot.js && node --check public/profile.js && node --check public/voice.js && node --check public/audio.js && node --check public/sw.js && node --check public/landing.js && node --check public/chess/app.js && node --check public/chess/board.js && node --check public/chess/engine.js && node --check public/chess/analysis.js && node --check public/chess/boot.js && node --check public/chess/pieces.js && node -e \"const fs=require('fs');const s=(a,b)=>fs.readFileSync(a,'utf8')===fs.readFileSync(b,'utf8');if(!s('src/engine/ludo.js','public/engine.js')||!s('src/chess/core.js','public/chess/core.js'))process.exit(1)\" && node -e \"const fs=require('fs');for(const f of ['public/index.html','public/ludo/index.html','public/chess/index.html']){const h=fs.readFileSync(f,'utf8');if(/style=\\\"/.test(h)||/<script>/.test(h)){console.error('inline code in '+f);process.exit(1)}}\"",
     "dev:worker": "wrangler dev",
     "deploy": "wrangler deploy",
     "test:browser:smoke": "python3 tools/browser-smoke.py",
     "test:browser:features": "python3 tools/browser-features.py",
-    "test:browser:multiplayer": "python3 tools/browser-multiplayer.py"
+    "test:browser:multiplayer": "python3 tools/browser-multiplayer.py",
+    "test:browser:chess": "node tests/browser/chess.mjs"
   },
   "engines": {
     "node": ">=22.0.0"
   },
   "devDependencies": {
     "wrangler": "4.156.1"
+  },
+  "dependencies": {
+    "chess.js": "^1.4.0"
   }
 }

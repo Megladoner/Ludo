@@ -7,15 +7,17 @@
     "directory": "./public",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/health", "/api/*", "/ws"]
+    "run_worker_first": ["/health", "/api/*", "/ws", "/ws/*", "/room/*", "/chess/local*", "/chess/computer*", "/chess/room/*"]
   },
   "durable_objects": {
     "bindings": [
-      { "name": "ROOM_HUB", "class_name": "RoomHub" }
+      { "name": "ROOM_HUB", "class_name": "RoomHub" },
+      { "name": "CHESS_ROOM", "class_name": "ChessRoom" }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["RoomHub"] }
+    { "tag": "v1", "new_sqlite_classes": ["RoomHub"] },
+    { "tag": "v2", "new_sqlite_classes": ["ChessRoom"] }
   ],
   "observability": { "enabled": true }
 }

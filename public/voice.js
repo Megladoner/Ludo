@@ -465,7 +465,7 @@
   }
 
   function paintCards(r) {
-    var cards = document.querySelectorAll('#player-grid .player-seat[data-color], #game-players .game-player[data-color]');
+    var cards = document.querySelectorAll('#player-grid .player-seat[data-color], #game-players .game-player[data-color], #ch-players .ch-player[data-color]');
     cards.forEach(function (card) {
       var player = r.players.find(function (p) { return p.color === card.dataset.color; });
       var status = player ? statusOf(player) : null;
