@@ -7,7 +7,7 @@ const rooms = require('./rooms');
 const ROOT = path.resolve(__dirname, '../../public');
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
-const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.ico': 'image/x-icon' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.ico': 'image/x-icon', '.wasm': 'application/wasm', '.txt': 'text/plain; charset=utf-8' };
 const hits = new Map();
 function clientIp(req) { if (process.env.TRUST_PROXY === 'true' && req.headers['x-forwarded-for']) return String(req.headers['x-forwarded-for']).split(',')[0].trim(); return req.socket.remoteAddress || 'unknown'; }
 function rateLimit(req, res) {
@@ -24,7 +24,13 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && url.pathname === '/api/config') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ publicUrl: process.env.PUBLIC_URL || `http://${req.headers.host}` })); return; }
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, { allow: 'GET, HEAD' }); res.end(); return; }
   let pathname = decodeURIComponent(url.pathname);
-  if (pathname === '/' || /^\/room\/[a-zA-Z0-9_-]+$/.test(pathname)) pathname = '/index.html';
+  if (pathname === '/ludo' ) { res.writeHead(307, { location: '/ludo/' }); res.end(); return; }
+  if (pathname === '/chess') { res.writeHead(307, { location: '/chess/' }); res.end(); return; }
+  if (pathname === '/') pathname = '/index.html';
+  else if (pathname === '/ludo/' || /^\/room\/[a-zA-Z0-9_-]+$/.test(pathname)) pathname = '/ludo/index.html';
+  else if (pathname === '/chess/' || /^\/chess\/(local|computer|room\/[A-Za-z0-9_-]+)\/?$/.test(pathname)) pathname = '/chess/index.html';
+  else if (pathname.endsWith('/')) pathname += 'index.html';
+  const chessPage = pathname.startsWith('/chess/');
   if (pathname === '/engine.js') pathname = '/../src/engine/ludo.js';
   const file = path.resolve(ROOT, `.${pathname}`);
   const allowed = file.startsWith(ROOT + path.sep) || file === path.resolve(ROOT, '../src/engine/ludo.js');
@@ -32,7 +38,7 @@ const server = http.createServer((req, res) => {
   fs.readFile(file, (error, data) => {
     if (error) { res.writeHead(404); res.end('Not found'); return; }
     const ext = path.extname(file);
-    res.writeHead(200, { 'content-type': MIME[ext] || 'application/octet-stream', 'cache-control': ext === '.html' ? 'no-cache' : 'public, max-age=3600', 'x-content-type-options': 'nosniff', 'referrer-policy': 'strict-origin-when-cross-origin', 'content-security-policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" });
+    res.writeHead(200, { 'content-type': MIME[ext] || 'application/octet-stream', 'cache-control': ext === '.html' ? 'no-cache' : 'public, max-age=3600', 'x-content-type-options': 'nosniff', 'referrer-policy': 'strict-origin-when-cross-origin', 'content-security-policy': `default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'${chessPage ? " 'wasm-unsafe-eval'" : ''}; worker-src 'self'; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'` });
     if (req.method === 'HEAD') res.end(); else res.end(data);
   });
 });

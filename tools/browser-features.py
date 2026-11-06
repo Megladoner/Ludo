@@ -15,7 +15,7 @@ from playwright.sync_api import sync_playwright
 
 CHROME = os.environ.get("CHROME_PATH", "")
 PORT = int(os.environ.get("PORT", "3401"))
-BASE = f"http://127.0.0.1:{PORT}"
+BASE = f"http://127.0.0.1:{PORT}/ludo/"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.environ.get("SHOT_DIR", os.path.join(ROOT, "artifacts", "screenshots"))
 FIXTURE = os.environ.get("FIXTURE_DIR", os.path.join(ROOT, "artifacts", "fixtures"))

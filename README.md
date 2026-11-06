@@ -96,6 +96,10 @@ The Node server uses `src/server/` and persists room data in `data/rooms.json`. 
 - `python3 tools/browser-smoke.py`, `python3 tools/browser-features.py`, and `python3 tools/browser-multiplayer.py` — headless Chromium drives the real interface against the real server over a real WebSocket. See `tools/README.md`.
 - The feature suite pins the behaviour of every rule that has changed, including the conditional single-token roll, the three-sixes rollback, the home-lane walk, the home-triangle bonus, the session resume and the chat panel.
 
+## Chess
+
+A full chess experience lives at `/chess/`: pass & play, seven Stockfish levels, private online rooms with server-side clocks, chat and optional voice, post-game analysis and three themes. See [docs/CHESS.md](docs/CHESS.md).
+
 ## Scope
 
 Not yet implemented: public matchmaking, accounts, QR invites, alternate rulesets, token/dice customization, and any cross-device profile sync. The profile card is deliberately local to one browser.

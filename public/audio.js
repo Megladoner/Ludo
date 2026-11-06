@@ -218,6 +218,74 @@
       if (!ready()) return;
       tone({ f: 190, f2: 120, dur: 0.18, vol: 0.08, type: 'triangle', lp: 1200 });
     },
+
+    // ---- Chess. Soft wood-and-felt voices that stay well under the Ludo effects. ----
+    // A piece set down on the board.
+    chessMove: function () {
+      if (!ready()) return;
+      noise({ f: jitter(1500, 0.1), q: 3, dur: 0.03, vol: 0.075 });
+      tone({ f: jitter(190, 0.06), f2: 108, dur: 0.075, vol: 0.12, type: 'triangle', lp: 1500 });
+    },
+    // A capture: a firmer knock with a little body.
+    chessCapture: function () {
+      if (!ready()) return;
+      noise({ f: 1700, q: 2.2, dur: 0.04, vol: 0.12 });
+      tone({ f: 150, f2: 66, dur: 0.15, vol: 0.18, type: 'triangle', lp: 1300 });
+      noise({ type: 'lowpass', f: 1500, f2: 300, dur: 0.12, vol: 0.09, at: 0.01 });
+    },
+    // Castling: two quick knocks.
+    chessCastle: function () {
+      if (!ready()) return;
+      sfx.chessMove();
+      setTimeout(function () { sfx.chessMove(); }, 95);
+    },
+    // The king is attacked: a short, clear two-note figure.
+    chessCheck: function () {
+      if (!ready()) return;
+      tone({ f: 740, dur: 0.14, vol: 0.05, type: 'sine' });
+      tone({ f: 988, dur: 0.3, vol: 0.05, type: 'sine', at: 0.08 });
+    },
+    // Checkmate: a low settle and a slow bell.
+    chessMate: function () {
+      if (!ready()) return;
+      tone({ f: 110, f2: 70, dur: 0.5, vol: 0.14, type: 'sine' });
+      bell(523, 0.05, 0.05, 1.5);
+      bell(392, 0.04, 0.2, 1.7);
+    },
+    // A new game begins.
+    chessStart: function () {
+      if (!ready()) return;
+      pluck(392, 0.08, 0, 0.3);
+      pluck(587, 0.08, 0.1, 0.4);
+    },
+    // A game ends without a mate: a soft falling pair.
+    chessEnd: function () {
+      if (!ready()) return;
+      pluck(587, 0.07, 0, 0.34);
+      pluck(440, 0.07, 0.14, 0.5);
+    },
+    // Somebody sat down at, or left, the room.
+    chessJoin: function () {
+      if (!ready()) return;
+      pluck(523, 0.06, 0, 0.26);
+      pluck(659, 0.06, 0.08, 0.3);
+    },
+    chessLeave: function () {
+      if (!ready()) return;
+      pluck(494, 0.055, 0, 0.26);
+      pluck(370, 0.055, 0.09, 0.32);
+    },
+    // A chat message from the opponent.
+    chessChat: function () {
+      if (!ready()) return;
+      tone({ f: 1240, dur: 0.07, vol: 0.04, type: 'sine' });
+      tone({ f: 1660, dur: 0.1, vol: 0.03, type: 'sine', at: 0.05 });
+    },
+    // A move the rules do not allow.
+    chessIllegal: function () {
+      if (!ready()) return;
+      tone({ f: 170, f2: 120, dur: 0.12, vol: 0.07, type: 'triangle', lp: 900 });
+    },
   };
 
   // Browsers keep audio locked until the first tap or key press.

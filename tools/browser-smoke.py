@@ -3,7 +3,7 @@ from playwright.sync_api import sync_playwright
 
 CHROME = os.environ.get("CHROME_PATH", "")
 PORT = int(os.environ.get("PORT", "3399"))
-BASE = f"http://127.0.0.1:{PORT}"
+BASE = f"http://127.0.0.1:{PORT}/ludo/"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.environ.get("SHOT_DIR", "artifacts/screenshots")
 os.makedirs(OUT, exist_ok=True)

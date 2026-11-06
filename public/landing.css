@@ -1,0 +1,22 @@
+/* Landing page: reuses the Ludo parlour tokens from /styles.css. */
+.landing-page .main-content { display: flex; flex-direction: column; gap: 40px; }
+.lp-hero { max-width: 720px; }
+.lp-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.lp-card {
+  position: relative; display: grid; gap: 22px; padding: 28px; border: 1px solid var(--line); border-radius: var(--r-xl);
+  background: linear-gradient(180deg, var(--surface-2), var(--surface)); color: var(--text); text-decoration: none; box-shadow: var(--hair), var(--lift);
+  transition: transform .2s var(--ease), border-color .2s var(--ease);
+}
+.lp-card:hover { transform: translateY(-3px); border-color: var(--brass-2); }
+.lp-card:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; }
+.lp-art { width: 100%; aspect-ratio: 16 / 7; border-radius: var(--r-lg); display: grid; grid-template-columns: repeat(4, 1fr); overflow: hidden; border: 1px solid var(--line-soft); }
+.lp-ludo .lp-art i:nth-child(1) { background: var(--red); } .lp-ludo .lp-art i:nth-child(2) { background: var(--green); }
+.lp-ludo .lp-art i:nth-child(3) { background: var(--yellow); } .lp-ludo .lp-art i:nth-child(4) { background: var(--blue); }
+.lp-art-chess { grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(2, 1fr); background: repeating-conic-gradient(#3a3a3e 0 25%, #8a8a8e 0 50%) 0 0 / 12.5% 50%; }
+.lp-art-chess i { display: none; }
+.lp-meta { display: grid; gap: 8px; }
+.lp-meta b { font: 700 34px var(--font-display); letter-spacing: -.01em; }
+.lp-meta > span:last-child { color: var(--muted); font-size: 13px; line-height: 1.7; }
+.lp-go { font: 700 12px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--brass); }
+.lp-resume { font: 11px var(--font-mono); color: var(--ok); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; justify-self: start; }
+@media (max-width: 760px) { .lp-grid { grid-template-columns: 1fr; } .lp-card { padding: 20px; } .landing-page .main-content { gap: 24px; } }
