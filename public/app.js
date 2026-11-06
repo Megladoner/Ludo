@@ -14,6 +14,18 @@ const NS = 'http://www.w3.org/2000/svg';
 const A = window.ParcheesiAudio;
 // Token colours are cosmetic. Seats (and the rules) never change; each seat just wears a colour.
 const SKINS = ['red', 'green', 'yellow', 'blue', 'purple', 'orange', 'teal', 'pink'];
+
+// Every colour also wears its own small mark, so tokens never rely on hue alone.
+const MARK_SHAPES = {
+  red: ['circle'],
+  green: ['polygon', [0, -1, 0.95, 0.75, -0.95, 0.75]],
+  yellow: ['polygon', [-0.8, -0.8, 0.8, -0.8, 0.8, 0.8, -0.8, 0.8]],
+  blue: ['polygon', [0, -1, 0.9, 0, 0, 1, -0.9, 0]],
+  purple: ['path', 'M0 -1V1M-1 0H1'],
+  orange: ['path', 'M-0.8 -0.8L0.8 0.8M0.8 -0.8L-0.8 0.8'],
+  teal: ['polygon', [0, -1, 0.95, -0.3, 0.6, 0.85, -0.6, 0.85, -0.95, -0.3]],
+  pink: ['polygon', [-1, 0, -0.5, -0.87, 0.5, -0.87, 1, 0, 0.5, 0.87, -0.5, 0.87]],
+};
 const SKIN_NAMES = { red: 'Ruby', green: 'Sage', yellow: 'Amber', blue: 'Cobalt', purple: 'Violet', orange: 'Ember', teal: 'Lagoon', pink: 'Rose' };
 // Cube rotation [x, y] that brings each face to the front.
 const DIE_TURN = { 1: [0, 0], 2: [0, -90], 3: [-90, 0], 4: [90, 0], 5: [0, 90], 6: [0, 180] };
@@ -404,6 +416,7 @@ function askSetup(mode) {
     difficulties.forEach((option) => option.setAttribute('aria-checked', String(option.dataset.difficulty === difficulty)));
   };
   const draft = {};
+  let openSeat = E.PLAYER_IDS[0];
   const paintNames = () => {
     const ids = E.PLAYER_IDS.slice(0, count);
     const aiNames = mode === 'ai' ? E.pickAiNames(Math.max(0, count - 1)) : [];
@@ -411,7 +424,8 @@ function askSetup(mode) {
     ids.forEach((id, index) => {
       const isAi = mode === 'ai' && index > 0;
       const row = document.createElement('div');
-      row.className = 'setup-name' + (isAi ? ' is-ai' : '');
+      row.className = 'setup-name' + (isAi ? ' is-ai' : '') + (id === openSeat ? ' is-open' : '');
+      row.dataset.row = id;
       const dot = document.createElement('span');
       dot.className = 'seat-dot color-' + skins[id];
       const input = document.createElement('input');
@@ -436,6 +450,15 @@ function askSetup(mode) {
       namesBox.appendChild(row);
     });
   };
+  // Only the seat being edited shows its colours, so a four-player sheet stays short.
+  const openRow = (id) => {
+    openSeat = id;
+    namesBox.querySelectorAll('.setup-name').forEach((row) => row.classList.toggle('is-open', row.dataset.row === id));
+  };
+  const onNameFocus = (event) => { const row = event.target.closest('.setup-name'); if (row) openRow(row.dataset.row); };
+  const onNameClick = (event) => { const row = event.target.closest('.setup-name'); if (row && event.target.closest('.seat-dot')) openRow(row.dataset.row); };
+  namesBox.addEventListener('focusin', onNameFocus);
+  namesBox.addEventListener('click', onNameClick);
   paintOptions();
   paintNames();
 
@@ -445,6 +468,8 @@ function askSetup(mode) {
     const finish = (value) => {
       if (done) return;
       done = true;
+      namesBox.removeEventListener('focusin', onNameFocus);
+      namesBox.removeEventListener('click', onNameClick);
       form.removeEventListener('submit', onSubmit);
       dialog.removeEventListener('close', onClose);
       resolve(value);
@@ -805,6 +830,13 @@ function hopTiming(steps) {
   return { step, total: step * steps };
 }
 
+// Where a token would stand after a given amount of progress (same coordinates the tokens use).
+function cellFor(playerId, progress) {
+  if (progress === E.FINISH_PROGRESS) return [7, 7];
+  if (progress >= E.HOME_ENTRY_PROGRESS) return E.HOME_COORDS[playerId][progress - E.HOME_ENTRY_PROGRESS];
+  return E.TRACK_COORDS[E.globalTrackIndex(playerId, progress)];
+}
+
 function computeLayout(game, interactive) {
   const turn = game.players[game.currentPlayer];
   const legal = interactive && game.awaitingMove ? E.legalMoves(game) : [];
@@ -823,6 +855,9 @@ function computeLayout(game, interactive) {
     items.push({
       player, index, x, y, r, progress, share: progress >= 0 && !done,
       can: player.id === turn?.id && legal.includes(index),
+      dim: legal.length > 0 && player.id === turn?.id && !legal.includes(index),
+      dest: player.id === turn?.id && legal.includes(index) && progress + game.dice <= E.FINISH_PROGRESS
+        ? cellFor(player.id, progress === -1 ? 0 : progress + game.dice) : null,
       homeward: progress >= E.HOME_ENTRY_PROGRESS && progress < E.FINISH_PROGRESS,
     });
   }));
@@ -959,11 +994,14 @@ function board(target, game, interactive) {
   const lead = Math.max(0, ...[...plans.values()].filter((p) => p.kind !== 'home').map((p) => p.duration));
   plans.forEach((plan) => { if (plan.kind === 'home') plan.delay = lead; });
 
+  // Show where each movable token would land, under the tokens.
+  items.forEach((item) => { if (item.dest) svg.appendChild(make('circle', { cx: item.dest[0], cy: item.dest[1], r: 0.3, class: 'b-dest' })); });
+
   const nextLayout = new Map();
   items.sort((a, b) => a.can - b.can).forEach((item) => {
     const key = item.player.id + ':' + item.index;
     nextLayout.set(key, { x: item.x, y: item.y, progress: item.progress });
-    const group = make('g', { class: 'token-g' });
+    const group = make('g', { class: 'token-g' + (item.dim ? ' is-dim' : '') });
     const shadow = make('ellipse', { cx: 0, cy: item.r * 0.62, rx: item.r * 0.92, ry: item.r * 0.4, class: 'token-shadow' });
     group.appendChild(shadow);
     if (item.can) {
@@ -977,6 +1015,11 @@ function board(target, game, interactive) {
     body.appendChild(make('circle', { cx: 0, cy: 0, r: item.r, class: 'token c-' + skins[item.player.id] }));
     body.appendChild(make('circle', { cx: 0, cy: 0, r: item.r * 0.62, class: 'token-ring' }));
     body.appendChild(make('circle', { cx: 0, cy: 0, r: item.r, class: 'token-gloss' }));
+    const shape = MARK_SHAPES[skins[item.player.id]] || MARK_SHAPES.red;
+    const k = item.r * 0.4;
+    if (shape[0] === 'circle') body.appendChild(make('circle', { cx: 0, cy: 0, r: k * 0.8, class: 'token-mark' }));
+    else if (shape[0] === 'polygon') body.appendChild(make('polygon', { points: shape[1].map((n) => +(n * k).toFixed(3)).join(' '), class: 'token-mark' }));
+    else body.appendChild(make('path', { d: shape[1].replace(/-?\d*\.?\d+/g, (n) => +(parseFloat(n) * k).toFixed(3)), class: 'token-mark-line' }));
     group.appendChild(body);
     if (item.can) {
       group.appendChild(make('circle', {
@@ -1057,7 +1100,6 @@ function renderGame() {
   $('turn-text').textContent = over
     ? (champion ? champion.name.toUpperCase() + ' WINS' : 'GAME OVER')
     : player.name.toUpperCase() + ' TO PLAY';
-  $('turn-detail').textContent = over ? 'The game is complete' : game.awaitingMove ? 'Choose a token' : 'Roll the dice';
   $('turn-banner').querySelector('.turn-dot').className = 'turn-dot color-' + skinOf(over ? (game.winner || player.id) : player.id);
   $('turn-banner').dataset.skin = skinOf(over ? (game.winner || player.id) : player.id);
   $('turn-banner').classList.toggle('is-waiting', !over && !state.local && player.id !== state.color);
@@ -1076,11 +1118,24 @@ function renderGame() {
     state.lastTurn = player.id;
   }
   $('dice-caption').textContent = over ? 'DONE' : game.awaitingMove ? 'PICK' : 'ROLL';
-  $('dice-title').textContent = game.awaitingMove ? 'Choose your token' : 'Roll the dice';
-  $('dice-subtitle').textContent = game.awaitingMove ? game.dice + ' spaces to move' : 'A six brings a token out';
 
   const mine = state.local ? player.kind === 'human' : player.id === state.color;
+
+  // The side panel follows the mode: chat only where there is a human table to talk to.
+  $('chat-box').hidden = state.local;
+  $('ai-panel').hidden = !state.ai;
+  if (state.ai) {
+    const tier = { easy: 'Relaxed', normal: 'Classic', hard: 'Ruthless' }[state.aiDifficulty] || 'Classic';
+    $('ai-level').textContent = tier.toUpperCase();
+    $('ai-title').textContent = 'Computer · ' + tier;
+    $('ai-status').textContent = over ? 'Good game.' : player.kind === 'ai' ? player.name + ' is thinking…' : 'Your move.';
+  }
   $('roll-dice').disabled = !mine || game.awaitingMove || over;
+  const cta = $('roll-cta');
+  if (cta) {
+    cta.disabled = $('roll-dice').disabled;
+    cta.textContent = over ? 'Game over' : game.awaitingMove ? 'Choose a token' : mine ? 'Roll the dice' : player.name + ' is playing…';
+  }
   const playsItself = !over && game.awaitingMove && E.autoMoveToken(game) !== null;
   $('move-hint').textContent = over
     ? 'Nicely played.'
@@ -1098,7 +1153,7 @@ function renderGame() {
       '<span class="seat-dot color-' + skinOf(entry.id) + '"></span>' +
       '<div><b>' + esc(entry.name) + (you ? ' · YOU' : '') + (done ? ' · HOME' : '') + '</b>' +
       '<span class="home-pips" role="img" aria-label="' + home + ' of 4 tokens home">' + pips + '</span>' +
-      '<small>' + home + '/4 HOME · ' + entry.captures + ' CAPTURES</small></div>' +
+      '<small>' + home + '/4 HOME · ' + entry.captures + ' CAPT</small></div>' +
       (active ? '<span class="turn-flag">TURN</span>' : '') + '</div>';
   }).join('');
   if (V) V.decorate();
@@ -1630,6 +1685,7 @@ $('player-grid').addEventListener('click', async (event) => {
   if (ok) send('lobby.kick', { playerId: target.id });
 });
 $('roll-dice').onclick = roll;
+$('roll-cta').onclick = roll;
 $('leave-game').onclick = leaveGame;
 $('play-again').onclick = async () => {
   if (state.local) { startLocalGame(state.ai ? 'ai' : 'local'); return; }
@@ -1637,12 +1693,50 @@ $('play-again').onclick = async () => {
 };
 $('chat-send').onclick = chat;
 $('chat-input').onkeydown = (event) => { if (event.key === 'Enter') chat(); };
+
+// On a phone the story and chat panels fold away so the board stays in reach.
+(() => {
+  const phone = window.matchMedia('(max-width: 980px)');
+  const panels = [...document.querySelectorAll('.story-panel, .chat-panel')];
+  const sync = () => panels.forEach((panel) => {
+    const head = panel.querySelector('.panel-heading');
+    if (phone.matches) {
+      head.setAttribute('role', 'button');
+      head.tabIndex = 0;
+      head.setAttribute('aria-expanded', String(!panel.classList.contains('is-collapsed')));
+    } else {
+      head.removeAttribute('role'); head.removeAttribute('tabindex'); head.removeAttribute('aria-expanded');
+      panel.classList.remove('is-collapsed');
+    }
+  });
+  const toggle = (panel) => {
+    if (!phone.matches) return;
+    panel.classList.toggle('is-collapsed');
+    panel.querySelector('.panel-heading').setAttribute('aria-expanded', String(!panel.classList.contains('is-collapsed')));
+  };
+  panels.forEach((panel) => {
+    const head = panel.querySelector('.panel-heading');
+    head.addEventListener('click', () => toggle(panel));
+    head.addEventListener('keydown', (event) => {
+      if (phone.matches && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); toggle(panel); }
+    });
+    if (phone.matches) panel.classList.add('is-collapsed');
+  });
+  sync();
+  phone.addEventListener('change', () => { if (phone.matches) panels.forEach((panel) => panel.classList.add('is-collapsed')); sync(); });
+})();
 $('chat-input').onfocus = clearChatUnread;
 $('settings-open').onclick = openSettings;
-$('settings-save').onclick = () => { savePrefs(readForm()); $('settings-dialog').close(); toast('Preferences saved', 'success'); };
-// Live preview inside the settings sheet; closing without saving restores the saved look.
-$('settings-dialog').addEventListener('change', () => { applyPrefs(readForm()); });
-$('settings-dialog').addEventListener('close', () => { applyPrefs(prefs); fillForm(prefs); });
+$('settings-save').onclick = () => { $('settings-dialog').close(); };
+// Settings save the moment they change, the same way the Chess page does.
+let savedTimer = 0;
+$('settings-dialog').addEventListener('change', () => {
+  savePrefs(readForm());
+  $('settings-status').textContent = 'Saved';
+  clearTimeout(savedTimer);
+  savedTimer = setTimeout(() => { $('settings-status').textContent = ''; }, 1600);
+});
+$('settings-dialog').addEventListener('close', () => { $('settings-status').textContent = ''; fillForm(prefs); });
 $('how-to-play').onclick = () => $('help-dialog').showModal();
 $('game-menu').onclick = () => { $('menu-dialog').showModal(); };
 $('avatar-button').onclick = openProfile;

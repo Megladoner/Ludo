@@ -10,8 +10,11 @@
 .lp-card:hover { transform: translateY(-3px); border-color: var(--brass-2); }
 .lp-card:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; }
 .lp-art { width: 100%; aspect-ratio: 16 / 7; border-radius: var(--r-lg); display: grid; grid-template-columns: repeat(4, 1fr); overflow: hidden; border: 1px solid var(--line-soft); }
-.lp-ludo .lp-art i:nth-child(1) { background: var(--red); } .lp-ludo .lp-art i:nth-child(2) { background: var(--green); }
-.lp-ludo .lp-art i:nth-child(3) { background: var(--yellow); } .lp-ludo .lp-art i:nth-child(4) { background: var(--blue); }
+.lp-ludo .lp-art { display: block; background: radial-gradient(120% 140% at 50% 50%, #1d2229, #101317); }
+.lp-board { display: block; width: 100%; height: 100%; }
+.lb-track { fill: #e3ded1; }
+.lb-yard { opacity: .9; } .lb-lane { opacity: 1; }
+.lb-r { fill: var(--red); } .lb-g { fill: var(--green); } .lb-y { fill: var(--yellow); } .lb-b { fill: var(--blue); }
 .lp-art-chess { grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(2, 1fr); background: repeating-conic-gradient(#3a3a3e 0 25%, #8a8a8e 0 50%) 0 0 / 12.5% 50%; }
 .lp-art-chess i { display: none; }
 .lp-meta { display: grid; gap: 8px; }
