@@ -76,8 +76,8 @@ with sync_playwright() as p:
     # --- 3. Dice + token movement ----------------------------------------
     page.click("#roll-dice")
     page.wait_for_timeout(900)
-    face = page.inner_text("#dice-face")
-    check("dice produced a face", face in list("⚀⚁⚂⚃⚄⚅"), face)
+    face = page.evaluate("document.getElementById('die-cube').style.transform")
+    check("dice produced a face", "rotateX" in face and "rotateY" in face, face)
     check("turn advanced or awaiting move", page.inner_text("#move-hint") != "")
 
     # Roll until a token moves. A lone token plays itself, so the board may
