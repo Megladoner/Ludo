@@ -133,7 +133,7 @@ with sync_playwright() as p:
                         except Exception:
                             pass
                         pg.wait_for_timeout(900)
-                    break
+                        break  # only stop once a client actually had a token to pick
             time.sleep(0.4)
         now = moves(host)
         if now > seen:
